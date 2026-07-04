@@ -114,7 +114,7 @@ default.unicode = true
 default.locale = "en-us"
 
 [tool.pytest.ini_options]
-addopts = "-q --cov=src/intervals_mcp_server --cov-report=term-missing --cov-fail-under=90"
+addopts = "-q --cov=intervals_mcp_server --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]
 python_files = "test_*.py"
 asyncio_default_fixture_loop_scope = "function"
