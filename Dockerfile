@@ -7,6 +7,9 @@ COPY pyproject.toml pyproject.toml
 COPY src src
 COPY README.md README.md
 COPY .env.example .env.example
+# Alembic migrations (run via `alembic upgrade head` in a deploy initContainer)
+COPY alembic.ini alembic.ini
+COPY alembic alembic
 
 # Install the package and runtime dependencies. All dependencies ship as
 # manylinux wheels (pydantic-core, cryptography, etc.), so no build toolchain
