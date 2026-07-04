@@ -10,7 +10,24 @@ permissions:
   packages: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      API_KEY: test
+      ATHLETE_ID: i1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install (with dev extras)
+        run: pip install --quiet ".[dev]"
+      - name: Test + coverage gate (>=90%)
+        run: pytest
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
