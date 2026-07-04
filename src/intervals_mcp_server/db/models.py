@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, LargeBinary, String, func
+from sqlalchemy import Boolean, DateTime, LargeBinary, String, false, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -31,7 +31,10 @@ class User(Base):
     athlete_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     api_key_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Secure default: any row created outside the ORM still lands disabled.
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
