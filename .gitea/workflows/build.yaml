@@ -12,20 +12,32 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       IMAGE: git.farh.net/farhoodlabs/intervalsicu-mcp
+      DOCKER_BUILDKIT: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build and push image
+      - name: Environment
         run: |
-          set -eu
+          docker version || true
+          df -h / || true
+
+      - name: Login to registry
+        run: |
           echo "${{ secrets.REGISTRY_TOKEN }}" | docker login git.farh.net -u cpfarhood --password-stdin
-          docker build \
+
+      - name: Build image
+        run: |
+          docker build --progress=plain \
             -t "${IMAGE}:latest" \
             -t "${IMAGE}:${GITHUB_SHA}" \
             .
+
+      - name: Push image
+        run: |
           docker push "${IMAGE}:latest"
           docker push "${IMAGE}:${GITHUB_SHA}"
           echo "pushed ${IMAGE}:latest and ${IMAGE}:${GITHUB_SHA}"
