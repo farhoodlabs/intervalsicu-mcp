@@ -51,6 +51,20 @@ def test_no_token_falls_back_to_env_config(monkeypatch):
     assert asyncio.run(resolve_caller_credentials()) == ("i999", "envkey")
 
 
+def test_get_access_token_raising_is_treated_as_no_context(monkeypatch):
+    # outside a request the SDK accessor may raise; that must fall back to env config
+    def _boom():
+        raise RuntimeError("no request context")
+
+    monkeypatch.setattr(credentials, "get_access_token", _boom)
+    monkeypatch.setattr(
+        credentials,
+        "get_config",
+        lambda: Config(api_key="envkey", athlete_id="i999", intervals_api_base_url="x", user_agent="t"),
+    )
+    assert asyncio.run(resolve_caller_credentials()) == ("i999", "envkey")
+
+
 def test_no_token_no_env_raises(monkeypatch):
     monkeypatch.setattr(credentials, "get_access_token", lambda: None)
     monkeypatch.setattr(

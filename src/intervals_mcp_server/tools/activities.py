@@ -7,19 +7,18 @@ This module contains tools for retrieving and managing athlete activities.
 from datetime import datetime, timedelta
 from typing import Any
 
+from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
-from intervals_mcp_server.config import get_config
+from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.tools.gear import (
     resolve_gear_for_activity,
     resolve_gear_for_activities,
 )
 from intervals_mcp_server.utils.formatting import format_activity_message, format_activity_summary, format_intervals
-from intervals_mcp_server.utils.validation import resolve_athlete_id, resolve_date_params
+from intervals_mcp_server.utils.validation import resolve_date_params
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
-
-config = get_config()
 
 
 def _parse_activities_from_result(result: Any) -> list[dict[str, Any]]:
@@ -105,28 +104,24 @@ def _format_activities_response(
 
 
 @mcp.tool()
-async def get_activities(  # pylint: disable=too-many-arguments,too-many-return-statements,too-many-branches,too-many-positional-arguments
-    athlete_id: str | None = None,
-    api_key: str | None = None,
+async def get_activities(  # pylint: disable=too-many-return-statements,too-many-branches
     start_date: str | None = None,
     end_date: str | None = None,
     limit: int = 10,
     include_unnamed: bool = False,
 ) -> str:
-    """Get a list of activities for an athlete from Intervals.icu
+    """Get a list of activities for the signed-in athlete from Intervals.icu
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         start_date: Start date in YYYY-MM-DD format (optional, defaults to 30 days ago)
         end_date: End date in YYYY-MM-DD format (optional, defaults to today)
         limit: Maximum number of activities to return (optional, defaults to 10)
         include_unnamed: Whether to include unnamed activities (optional, defaults to False)
     """
-    # Resolve athlete ID and date parameters
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     start_date, end_date = resolve_date_params(start_date, end_date)
 
@@ -176,13 +171,17 @@ async def get_activities(  # pylint: disable=too-many-arguments,too-many-return-
 
 
 @mcp.tool()
-async def get_activity_details(activity_id: str, api_key: str | None = None) -> str:
+async def get_activity_details(activity_id: str) -> str:
     """Get detailed information for a specific activity from Intervals.icu
 
     Args:
         activity_id: The Intervals.icu activity ID
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
     # Call the Intervals.icu API
     result = await make_intervals_request(url=f"/activity/{activity_id}", api_key=api_key)
 
@@ -199,8 +198,8 @@ async def get_activity_details(activity_id: str, api_key: str | None = None) -> 
     if not isinstance(activity_data, dict):
         return f"Invalid activity format for activity {activity_id}."
 
-    # Resolve gear name (uses configured athlete_id via ATHLETE_ID env var)
-    await resolve_gear_for_activity(activity_data, api_key=api_key)
+    # Resolve gear name for the signed-in athlete
+    await resolve_gear_for_activity(activity_data, athlete_id=athlete_id_to_use, api_key=api_key)
 
     # Return a more detailed view of the activity
     detailed_view = format_activity_summary(activity_data)
@@ -220,7 +219,7 @@ async def get_activity_details(activity_id: str, api_key: str | None = None) -> 
 
 
 @mcp.tool()
-async def get_activity_intervals(activity_id: str, api_key: str | None = None) -> str:
+async def get_activity_intervals(activity_id: str) -> str:
     """Get interval data for a specific activity from Intervals.icu
 
     This endpoint returns detailed metrics for each interval in an activity, including power, heart rate,
@@ -228,8 +227,12 @@ async def get_activity_intervals(activity_id: str, api_key: str | None = None) -
 
     Args:
         activity_id: The Intervals.icu activity ID
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
+    try:
+        _athlete_id, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
     # Call the Intervals.icu API
     result = await make_intervals_request(url=f"/activity/{activity_id}/intervals", api_key=api_key)
 
@@ -254,7 +257,6 @@ async def get_activity_intervals(activity_id: str, api_key: str | None = None) -
 @mcp.tool()
 async def get_activity_streams(
     activity_id: str,
-    api_key: str | None = None,
     stream_types: str | None = None,
 ) -> str:
     """Get stream data for a specific activity from Intervals.icu
@@ -264,11 +266,15 @@ async def get_activity_streams(
 
     Args:
         activity_id: The Intervals.icu activity ID
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         stream_types: Comma-separated list of stream types to retrieve (optional, defaults to all available types)
                      Available types: time, watts, heartrate, cadence, altitude, distance,
                      core_temperature, skin_temperature, velocity_smooth
     """
+    try:
+        _athlete_id, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
     # Build query parameters
     params = {}
     if stream_types:
@@ -330,13 +336,17 @@ async def get_activity_streams(
 
 
 @mcp.tool()
-async def get_activity_messages(activity_id: str, api_key: str | None = None) -> str:
+async def get_activity_messages(activity_id: str) -> str:
     """Get messages (notes/comments) for a specific activity from Intervals.icu
 
     Args:
         activity_id: The Intervals.icu activity ID
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
+    try:
+        _athlete_id, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
     result = await make_intervals_request(
         url=f"/activity/{activity_id}/messages",
         api_key=api_key,
@@ -365,15 +375,18 @@ async def get_activity_messages(activity_id: str, api_key: str | None = None) ->
 async def add_activity_message(
     activity_id: str,
     content: str,
-    api_key: str | None = None,
 ) -> str:
     """Add a message (note/comment) to an activity on Intervals.icu
 
     Args:
         activity_id: The Intervals.icu activity ID
         content: The message text to add
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
+    try:
+        _athlete_id, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
     result = await make_intervals_request(
         url=f"/activity/{activity_id}/messages",
         api_key=api_key,

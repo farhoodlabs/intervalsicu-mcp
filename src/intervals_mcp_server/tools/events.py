@@ -8,17 +8,16 @@ import json
 from datetime import datetime
 from typing import Any
 
+from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
-from intervals_mcp_server.config import get_config
+from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.dates import get_default_end_date, get_default_future_end_date
 from intervals_mcp_server.utils.formatting import format_event_details, format_event_summary
 from intervals_mcp_server.utils.types import WorkoutDoc
-from intervals_mcp_server.utils.validation import resolve_activity_type, resolve_athlete_id, validate_date
+from intervals_mcp_server.utils.validation import resolve_activity_type, validate_date
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
-
-config = get_config()
 
 
 def _prepare_event_data(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -89,23 +88,20 @@ async def _delete_events_list(
 
 @mcp.tool()
 async def get_events(
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> str:
     """Get events for an athlete from Intervals.icu
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         start_date: Start date in YYYY-MM-DD format (optional, defaults to today)
         end_date: End date in YYYY-MM-DD format (optional, defaults to 30 days from today)
     """
     # Resolve athlete ID
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     # Parse date parameters (events use different defaults)
     if not start_date:
@@ -147,20 +143,17 @@ async def get_events(
 @mcp.tool()
 async def get_event_by_id(
     event_id: str,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Get detailed information for a specific event from Intervals.icu
 
     Args:
         event_id: The Intervals.icu event ID
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
     # Resolve athlete ID
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     # Call the Intervals.icu API
     result = await make_intervals_request(
@@ -184,18 +177,15 @@ async def get_event_by_id(
 @mcp.tool()
 async def delete_event(
     event_id: str,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Delete event for an athlete from Intervals.icu
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         event_id: The Intervals.icu event ID
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
     if not event_id:
         return "Error: No event ID provided."
     result = await make_intervals_request(
@@ -234,20 +224,17 @@ async def _fetch_events_for_deletion(
 async def delete_events_by_date_range(
     start_date: str,
     end_date: str,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Delete events for an athlete from Intervals.icu in the specified date range.
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         start_date: Start date in YYYY-MM-DD format
         end_date: End date in YYYY-MM-DD format
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     events, error_msg = await _fetch_events_for_deletion(
         athlete_id_to_use, api_key, start_date, end_date
@@ -264,8 +251,6 @@ async def delete_events_by_date_range(
 async def add_or_update_event(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     workout_type: str,
     name: str,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     event_id: str | None = None,
     start_date: str | None = None,
     workout_doc: WorkoutDoc | None = None,
@@ -278,8 +263,6 @@ async def add_or_update_event(  # pylint: disable=too-many-arguments,too-many-po
     Many arguments are required as this MCP tool function maps directly to the Intervals.icu API parameters.
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         event_id: The Intervals.icu event ID (optional, will use event_id from .env if not provided)
         start_date: Start date in YYYY-MM-DD format (optional, defaults to today)
         name: Name of the activity
@@ -337,9 +320,10 @@ async def add_or_update_event(  # pylint: disable=too-many-arguments,too-many-po
     - Use "reps" with nested steps to define repeat intervals (as in example above)
     - Define one of "power", "hr" or "pace" to define step intensity
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     if not start_date:
         start_date = datetime.now().strftime("%Y-%m-%d")
@@ -362,8 +346,6 @@ async def add_or_update_note(
     description: str,
     start_date: str | None = None,
     color: str | None = "green",
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     event_id: str | None = None,
 ) -> str:
     """Add or update a plain text note (category NOTE) on the Intervals.icu calendar.
@@ -377,9 +359,10 @@ async def add_or_update_note(
         api_key: The Intervals.icu API key (optional)
         event_id: The Intervals.icu event ID (optional, for updates)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     if not start_date:
         start_date = datetime.now().strftime("%Y-%m-%d")

@@ -19,8 +19,10 @@ Call `get_gear_list(refresh=True)` to bust the cache.
 
 from typing import Any
 
+from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
 from intervals_mcp_server.config import get_config
+from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.validation import resolve_athlete_id
 
 # Import mcp instance from shared module for tool registration
@@ -151,26 +153,21 @@ async def resolve_gear_for_activities(
 
 @mcp.tool()
 async def get_gear_list(
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     refresh: bool = False,
 ) -> str:
-    """Get the gear catalog (bikes, shoes, etc.) for an athlete from Intervals.icu.
+    """Get the gear catalog (bikes, shoes, etc.) for the signed-in athlete from Intervals.icu.
 
     Returns one line per gear item with id, type, name, and basic stats.
     The result is cached for the MCP process lifetime; pass refresh=True to
     re-fetch.
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         refresh: If True, bypass the cache and re-fetch from the API (default False)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
-    if not athlete_id_to_use:
-        return "Error: athlete_id is required (either as argument or via ATHLETE_ID env var)."
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     # Single fetch path: get_gear_raw consults the cache and only hits the API
     # on a cold cache or when refresh=True.

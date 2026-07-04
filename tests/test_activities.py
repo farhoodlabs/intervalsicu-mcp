@@ -75,7 +75,7 @@ def test_format_response_empty_named_hint():
 # --------------------------------------------------------------------------- #
 def test_get_activities_error(monkeypatch):
     _patch_request(monkeypatch, lambda _n, _k: {"error": True, "message": "rate limited"})
-    out = asyncio.run(activities.get_activities(athlete_id="i1"))
+    out = asyncio.run(activities.get_activities())
     assert "Error fetching activities: rate limited" in out
 
 
@@ -87,7 +87,7 @@ def test_get_activities_requests_triple_limit_and_filters(monkeypatch):
 
     calls = _patch_request(monkeypatch, handler)
     out = asyncio.run(
-        activities.get_activities(athlete_id="i1", start_date="2026-06-01", end_date="2026-06-30", limit=5)
+        activities.get_activities(start_date="2026-06-01", end_date="2026-06-30", limit=5)
     )
     assert calls[0]["params"]["limit"] == 15  # limit * 3 when filtering unnamed
     assert len(calls) == 2  # topped up because named < limit
@@ -97,7 +97,7 @@ def test_get_activities_requests_triple_limit_and_filters(monkeypatch):
 
 def test_get_activities_include_unnamed_no_topup(monkeypatch):
     calls = _patch_request(monkeypatch, lambda _n, _k: [{"name": "Unnamed", "id": 1, "distance": 5}])
-    out = asyncio.run(activities.get_activities(athlete_id="i1", include_unnamed=True, limit=10))
+    out = asyncio.run(activities.get_activities(include_unnamed=True, limit=10))
     assert calls[0]["params"]["limit"] == 10  # no *3
     assert len(calls) == 1  # no fetch-more
     assert "Activities:" in out

@@ -7,31 +7,26 @@ This module contains tools for managing athlete custom items (charts, fields, zo
 import json
 from typing import Any
 
+from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
-from intervals_mcp_server.config import get_config
+from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.formatting import format_custom_item_details
-from intervals_mcp_server.utils.validation import resolve_athlete_id
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
 
-config = get_config()
-
 
 @mcp.tool()
 async def get_custom_items(
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Get custom items (charts, custom fields, zones, etc.) for an athlete from Intervals.icu
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     result = await make_intervals_request(
         url=f"/athlete/{athlete_id_to_use}/custom-item", api_key=api_key
@@ -58,19 +53,16 @@ async def get_custom_items(
 @mcp.tool()
 async def get_custom_item_by_id(
     item_id: int,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Get detailed information for a specific custom item from Intervals.icu
 
     Args:
         item_id: The custom item ID
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     result = await make_intervals_request(
         url=f"/athlete/{athlete_id_to_use}/custom-item/{item_id}", api_key=api_key
@@ -89,8 +81,6 @@ async def get_custom_item_by_id(
 async def create_custom_item(
     name: str,
     item_type: str,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     description: str | None = None,
     content: dict[str, Any] | None = None,
     visibility: str | None = None,
@@ -100,17 +90,16 @@ async def create_custom_item(
     Args:
         name: Name of the custom item
         item_type: Type of custom item (e.g. FITNESS_CHART, TRACE_CHART, INPUT_FIELD, ACTIVITY_FIELD, INTERVAL_FIELD, ACTIVITY_STREAM, ACTIVITY_CHART, ACTIVITY_HISTOGRAM, ACTIVITY_HEATMAP, ACTIVITY_MAP, ACTIVITY_PANEL, ZONES)
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         description: Description of the custom item (optional)
         content: Configuration content for the custom item as a dict (optional). Important enum values:
             - "type" field for INPUT_FIELD/ACTIVITY_FIELD: must be "numeric", "text", or "select" (NOT "number")
             - "aggregate" field: must be "MIN", "SUM", "MAX", or "AVERAGE" (NOT "AVG")
         visibility: Visibility setting: PRIVATE, FOLLOWERS, or PUBLIC (optional)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     data: dict[str, Any] = {"name": name, "type": item_type}
     if description is not None:
@@ -144,8 +133,6 @@ async def create_custom_item(
 @mcp.tool()
 async def update_custom_item(
     item_id: int,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     name: str | None = None,
     item_type: str | None = None,
     description: str | None = None,
@@ -156,8 +143,6 @@ async def update_custom_item(
 
     Args:
         item_id: The custom item ID to update
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         name: New name for the custom item (optional)
         item_type: New type for the custom item (optional)
         description: New description for the custom item (optional)
@@ -166,9 +151,10 @@ async def update_custom_item(
             - "aggregate" field: must be "MIN", "SUM", "MAX", or "AVERAGE" (NOT "AVG")
         visibility: New visibility setting: PRIVATE, FOLLOWERS, or PUBLIC (optional)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     data: dict[str, Any] = {}
     if name is not None:
@@ -206,19 +192,16 @@ async def update_custom_item(
 @mcp.tool()
 async def delete_custom_item(
     item_id: int,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Delete a custom item for an athlete from Intervals.icu
 
     Args:
         item_id: The custom item ID to delete
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     result = await make_intervals_request(
         url=f"/athlete/{athlete_id_to_use}/custom-item/{item_id}",

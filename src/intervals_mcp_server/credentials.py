@@ -32,7 +32,10 @@ class CredentialError(Exception):
 
 async def resolve_caller_credentials() -> tuple[str, str]:
     """Return ``(athlete_id, api_key)`` for the current caller or raise CredentialError."""
-    token = get_access_token()
+    try:
+        token = get_access_token()
+    except Exception:  # noqa: BLE001 - no auth context (stdio/local dev)
+        token = None
     if token is not None and token.subject:
         creds = await store.get_active_credentials(token.subject)
         if creds is None:

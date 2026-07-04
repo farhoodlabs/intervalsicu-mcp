@@ -4,41 +4,37 @@ Wellness-related MCP tools for Intervals.icu.
 This module contains tools for retrieving athlete wellness data.
 """
 
+from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
-from intervals_mcp_server.config import get_config
+from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.formatting import format_wellness_entry
-from intervals_mcp_server.utils.validation import resolve_athlete_id, resolve_date_params
+from intervals_mcp_server.utils.validation import resolve_date_params
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
 
-config = get_config()
-
 
 @mcp.tool()
 async def get_wellness_data(
-    athlete_id: str | None = None,
-    api_key: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     include_all_fields: bool = False,
 ) -> str:
-    """Get wellness data for an athlete from Intervals.icu.
+    """Get wellness data for the signed-in athlete from Intervals.icu.
 
     By default returns standard wellness fields (training metrics, vitals, sleep,
     subjective scores, etc.). Set include_all_fields=True to also include any
     additional or custom fields configured by the user in Intervals.icu.
 
     Args:
-        athlete_id: The Intervals.icu athlete ID (optional, will use ATHLETE_ID from .env if not provided)
-        api_key: The Intervals.icu API key (optional, will use API_KEY from .env if not provided)
         start_date: Start date in YYYY-MM-DD format (optional, defaults to 30 days ago)
         end_date: End date in YYYY-MM-DD format (optional, defaults to today)
         include_all_fields: If True, include additional and custom fields beyond the standard set (optional, defaults to False)
     """
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     start_date, end_date = resolve_date_params(start_date, end_date)
 

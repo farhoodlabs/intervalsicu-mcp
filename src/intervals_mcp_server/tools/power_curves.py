@@ -8,15 +8,13 @@ import json
 from datetime import datetime
 from typing import Any
 
+from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
-from intervals_mcp_server.config import get_config
+from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.formatting import format_power_curves
-from intervals_mcp_server.utils.validation import resolve_activity_type, resolve_athlete_id
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
-
-config = get_config()
 
 # 5s, 15s, 30s, 1min, 2min, 5min, 10min, 20min, 60min
 DEFAULT_DURATIONS: tuple[int, ...] = (5, 15, 30, 60, 120, 300, 600, 1200, 3600)
@@ -135,8 +133,6 @@ async def get_athlete_power_curves(
     this_season: bool = True,
     last_season: bool = True,
     include_normalised: bool = True,
-    athlete_id: str | None = None,
-    api_key: str | None = None,
 ) -> str:
     """Get power curves for an athlete from Intervals.icu.
 
@@ -152,15 +148,14 @@ async def get_athlete_power_curves(
         this_season: Include this season's curve (default True)
         last_season: Include last season's curve (default True)
         include_normalised: Include weight-normalised W/kg values (default True)
-        athlete_id: Intervals.icu athlete ID (optional, uses ATHLETE_ID from .env if not provided)
-        api_key: Optional API key override. Uses API_KEY from .env if not provided.
     """
     if durations is None:
         durations = list(DEFAULT_DURATIONS)
 
-    athlete_id_to_use, error_msg = resolve_athlete_id(athlete_id, config.athlete_id)
-    if error_msg:
-        return error_msg
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
 
     if indoor_outdoor and indoor_outdoor not in ("indoor", "outdoor"):
         return "Error: indoor_outdoor must be 'indoor', 'outdoor', or omitted."
