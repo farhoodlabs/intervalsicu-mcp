@@ -1,10 +1,10 @@
 """
 Tests for intervals_mcp_server.auth — native OAuth token verification.
 
-Covers the real security logic: a valid RS256 JWT yields an AccessToken with the
-right claims; tampered / expired / wrong-audience / wrong-key tokens yield None;
-the audience accepts both trailing-slash forms; and build_auth only enables auth
-when the environment is configured.
+Covers the real security logic: a valid JWT (RS256 or Better Auth's EdDSA) yields
+an AccessToken with the right claims; tampered / expired / wrong-issuer / wrong-key
+tokens yield None; audience is checked softly (single resource); and build_auth
+only enables auth when the environment is configured.
 """
 
 import asyncio
@@ -13,7 +13,7 @@ import types
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 
 from intervals_mcp_server import auth as auth_mod
 from intervals_mcp_server.auth import AuthentikTokenVerifier, _audience_variants, build_auth
@@ -76,11 +76,34 @@ def test_expired_token_rejected():
     assert asyncio.run(v.verify_token(tok)) is None
 
 
-def test_wrong_audience_rejected():
+def test_wrong_audience_tolerated_single_resource():
+    # Audience is checked softly: this is a single-resource server behind a
+    # dedicated authorization server with dynamic (DCR) client ids, so a genuine
+    # token — correct issuer + signature + not expired — is accepted even if its
+    # audience differs. The trust boundary is issuer + signature (asserted by the
+    # wrong-issuer / wrong-key tests below); a mismatch is logged, not rejected.
     priv, pub = _keypair()
-    v = _verifier(pub, ["https://someone-else"])  # verifier expects a different aud
-    tok = _token(priv, aud=RESOURCE)
-    assert asyncio.run(v.verify_token(tok)) is None
+    v = _verifier(pub, ["https://someone-else"])
+    tok = _token(priv, aud="https://some-other-resource")
+    result = asyncio.run(v.verify_token(tok))
+    assert result is not None
+    assert result.subject == "user-123"
+
+
+def test_eddsa_token_accepted():
+    # Better Auth signs access tokens with EdDSA (Ed25519); the verifier must
+    # accept them, not just RS256.
+    priv = ed25519.Ed25519PrivateKey.generate()
+    v = _verifier(priv.public_key(), [RESOURCE])
+    now = int(time.time())
+    tok = jwt.encode(
+        {"iss": ISSUER, "aud": RESOURCE, "exp": now + 3600, "iat": now, "sub": "user-ed"},
+        priv,
+        algorithm="EdDSA",
+    )
+    result = asyncio.run(v.verify_token(tok))
+    assert result is not None
+    assert result.subject == "user-ed"
 
 
 def test_wrong_issuer_rejected():

@@ -18,8 +18,13 @@ import os
 logger = logging.getLogger("intervals_icu_mcp_server")
 
 
+# Algorithms we accept. Better Auth signs with EdDSA (Ed25519); RS256/ES256 are
+# kept so the same verifier works against other OAuth servers.
+_ALGORITHMS = ["EdDSA", "RS256", "ES256"]
+
+
 class AuthentikTokenVerifier:
-    """Verify RS256 Bearer JWTs against a JWKS endpoint (RFC 9068 style)."""
+    """Verify Bearer JWTs against a JWKS endpoint (RFC 9068 style)."""
 
     def __init__(self, jwks_uri: str, issuer: str, audience: list[str]):
         import jwt  # PyJWT
@@ -35,20 +40,31 @@ class AuthentikTokenVerifier:
 
         try:
             key = self._jwks.get_signing_key_from_jwt(token).key
+            # Validate issuer + signature + expiry strictly. Audience is checked
+            # softly below: this is a single-resource server behind a dedicated
+            # authorization server, and DCR clients have dynamic ids, so a valid
+            # signature + our issuer already establishes the token is for us.
             claims = jwt.decode(
                 token,
                 key,
-                algorithms=["RS256"],
+                algorithms=_ALGORITHMS,
                 issuer=self._issuer,
-                audience=self._audience,
-                options={"require": ["exp", "iat", "iss", "aud"]},
+                options={"require": ["exp", "iat", "iss"], "verify_aud": False},
             )
         except Exception as exc:  # noqa: BLE001 - any failure means unauthenticated
             logger.debug("Token verification failed: %s", exc)
             return None
 
         aud = claims.get("aud")
-        resource = aud[0] if isinstance(aud, list) else aud
+        auds = aud if isinstance(aud, list) else ([aud] if aud else [])
+        if auds and not any(a in self._audience for a in auds):
+            logger.warning(
+                "Token audience %s not in accepted %s; accepting (single resource).",
+                auds,
+                self._audience,
+            )
+
+        resource = auds[0] if auds else self._audience[0]
         return AccessToken(
             token=token,
             client_id=claims.get("azp") or resource,
