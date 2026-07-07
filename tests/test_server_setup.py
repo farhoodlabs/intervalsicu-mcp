@@ -61,10 +61,16 @@ def test_start_server_stdio():
     m.run.assert_called_once_with()
 
 
-def test_start_server_streamable_http():
+def test_start_server_streamable_http(monkeypatch):
     m = _mock_mcp()
+    calls = {}
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: calls.update(app=app, kw=kw))
     server_setup.start_server(m, TransportAliases.STREAMABLE_HTTP)
-    m.run.assert_called_once_with(transport="streamable-http")
+    # builds the app, adds CORS middleware, and serves it via uvicorn
+    m.streamable_http_app.assert_called_once_with()
+    m.streamable_http_app.return_value.add_middleware.assert_called_once()
+    assert calls["app"] is m.streamable_http_app.return_value
+    assert calls["kw"]["host"] == "0.0.0.0" and calls["kw"]["port"] == 8080
 
 
 def test_start_server_sse_uses_mount_path(monkeypatch):
