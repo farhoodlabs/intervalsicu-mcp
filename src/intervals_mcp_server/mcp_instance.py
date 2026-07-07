@@ -25,10 +25,13 @@ from intervals_mcp_server.auth import build_auth
 
 _kwargs: dict[str, Any] = {"lifespan": setup_api_client}
 
-# HTTP transport tuning: stateless + single JSON response body.
+# HTTP transport tuning. Default to stateful sessions + SSE responses, which the
+# Claude Desktop connector expects (it needs an Mcp-Session-Id from initialize).
+# stateless_http/json_response can be re-enabled via env for multi-replica or
+# serverless deployments that can't hold session state.
 if os.getenv("MCP_TRANSPORT", "stdio").lower() in ("http", "streamable-http"):
-    _kwargs["stateless_http"] = True
-    _kwargs["json_response"] = True
+    _kwargs["stateless_http"] = os.getenv("MCP_STATELESS_HTTP", "false").lower() == "true"
+    _kwargs["json_response"] = os.getenv("MCP_JSON_RESPONSE", "false").lower() == "true"
     if os.getenv("FASTMCP_HOST"):
         _kwargs["host"] = os.environ["FASTMCP_HOST"]
     if os.getenv("FASTMCP_PORT"):
