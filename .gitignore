@@ -182,6 +182,5 @@ TODO
 .gitconfig
 .claude/
 .DS_Store
-CLAUDE.md
 _alembic_test.db
 *.db
