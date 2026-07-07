@@ -1,379 +1,102 @@
 # Intervals.icu MCP Server
 
-Model Context Protocol (MCP) server for connecting Claude and ChatGPT with the Intervals.icu API. It provides tools for authentication and data retrieval for activities, events, wellness data, power curves, and custom items.
+A self-hosted, multi-tenant Model Context Protocol (MCP) server that exposes the
+[Intervals.icu](https://intervals.icu) API — activities, events, wellness, power curves, gear, and
+custom items — as MCP tools for Claude. It runs as a remote, OAuth-authenticated connector at
+`https://intervalsicu.farhoodlabs.com/mcp`, where each user's Intervals.icu API key and athlete id are
+stored encrypted and looked up per request from their OAuth identity.
 
-If you find the Model Context Protocol (MCP) server useful, please consider supporting its continued development with a donation.
+This is a fork of the upstream single-tenant project
+([mvilanova/intervals-mcp-server](https://github.com/mvilanova/intervals-mcp-server)), reworked for
+remote multi-user operation.
 
-## Requirements
+## How it fits together
 
-- Python 3.12 or higher
-- [Model Context Protocol (MCP) Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-- httpx
-- python-dotenv
+The system is three services on one Kubernetes host (`intervalsicu.farhoodlabs.com`), deployed via Flux
+GitOps and sharing one CloudNativePG Postgres database:
 
-## Setup
+| Service | Path | What it does |
+| --- | --- | --- |
+| **intervalsicu-mcp** (this repo) | `/mcp` | The MCP server. Verifies OAuth JWTs and serves Intervals.icu data as MCP tools over streamable-HTTP. |
+| **intervalsicu-mcp-ui** | `/portal` | Portal where users sign in (Google via Better Auth) and set their Intervals.icu credentials; admins approve accounts. |
+| **intervalsicu-mcp-auth** | `/api/auth` | Better Auth OAuth 2.1 server: dynamic client registration (DCR), PKCE, EdDSA-signed JWTs + JWKS, Google login. |
 
-### 1. Install uv (recommended)
+**Connection flow:** the Claude connector self-registers at the auth server (DCR), the user logs in with
+Google, and Claude receives a JWT access token whose audience is the `/mcp` URL. This server verifies
+that JWT against the auth server's JWKS and resolves the caller's stored Intervals.icu credentials by the
+token subject. A user who hasn't been approved or hasn't set credentials gets a friendly "account isn't
+ready" message.
 
-**macOS/Linux:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+## Connecting Claude
+
+Add a **custom remote connector** in Claude pointing at:
+
+```
+https://intervalsicu.farhoodlabs.com/mcp
 ```
 
-**Windows (PowerShell):**
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
+Name it **without a dot** — use `intervals`, not `intervals.icu`. Claude Desktop and mobile fail to load
+the tools if the connector name contains a dot. Claude handles registration and Google login for you.
+Your account must be approved in the portal and have Intervals.icu credentials set.
 
-After installation, find the full path to `uv` — you'll need it later when configuring Claude Desktop:
+### Available tools
 
-```powershell
-where.exe uv
-# Example output: C:\Users\<USERNAME>\.local\bin\uv.exe
-```
+`get_activities`, `get_activity_details`, `get_activity_intervals`, `get_activity_streams`,
+`get_activity_messages`, `add_activity_message`, `get_events`, `get_event_by_id`, `add_or_update_event`,
+`delete_event`, `delete_events_by_date_range`, `get_wellness_data`, `get_athlete_power_curves`,
+`get_gear_list`, `get_custom_items`, `get_custom_item_by_id`, `create_custom_item`, `update_custom_item`,
+`delete_custom_item`.
 
-### 2. Clone this repository
+## Local development
 
-```bash
-git clone https://github.com/mvilanova/intervals-mcp-server.git
-cd intervals-mcp-server
-```
-
-### 3. Create and activate a virtual environment
-
-```bash
-# Create virtual environment with Python 3.12
-uv venv --python 3.12
-
-# Activate virtual environment
-# On macOS/Linux:
-source .venv/bin/activate
-# On Windows:
-.venv\Scripts\activate
-```
-
-### 4. Sync project dependencies
+Requires Python 3.12+ and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
+uv venv --python 3.12 && source .venv/bin/activate
+uv sync --all-extras        # install with dev extras
+
+uv run pytest               # tests (enforces a >=90% coverage gate)
+ruff check .                # lint
+mypy src tests              # type check
 ```
 
-### 5. Set up environment variables
-
-Make a copy of `.env.example` and name it `.env` by running the following command:
-
-**macOS/Linux:**
-```bash
-cp .env.example .env
-```
-
-**Windows (PowerShell):**
-```powershell
-Copy-Item .env.example .env
-```
-
-Then edit the `.env` file and set your Intervals.icu athlete id and API key:
-
-```
-API_KEY=your_intervals_api_key_here
-ATHLETE_ID=your_athlete_id_here
-```
-
-#### Getting your Intervals.icu API Key
-
-1. Log in to your Intervals.icu account
-2. Go to Settings > API
-3. Generate a new API key
-
-#### Finding your Athlete ID
-
-Your athlete ID is typically visible in the URL when you're logged into Intervals.icu. It looks like:
-
-- `https://intervals.icu/athlete/i12345/...` where `i12345` is your athlete ID
-
-## Updating
-
-This project is actively developed, with new features and fixes added regularly. To stay up to date, follow these steps:
-
-### 1. Pull the latest changes from `main`
-
-> ⚠️ Make sure you don't have uncommitted changes before running this command.
-
-**macOS/Linux:**
-```bash
-git checkout main && git pull
-```
-
-**Windows (PowerShell):**
-```powershell
-git checkout main; git pull
-```
-
-### 2. Update Python dependencies
-
-Activate your virtual environment and sync dependencies:
-
-**macOS/Linux:**
-```bash
-source .venv/bin/activate
-uv sync
-```
-
-**Windows (PowerShell):**
-```powershell
-.venv\Scripts\activate
-uv sync
-```
-
-### Troubleshooting
-
-If Claude Desktop fails due to configuration changes, follow these steps:
-
-1. Delete the existing `Intervals.icu` entry in `claude_desktop_config.json`.
-2. Reconfigure Claude Desktop from the `intervals-mcp-server` directory.
-
-**macOS/Linux:**
-```bash
-mcp install src/intervals_mcp_server/server.py --name "Intervals.icu" --with-editable . --env-file .env
-```
-
-**Windows:** Re-add the entry manually as described in the [Windows configuration section](#windows).
-
-#### Common errors
-
-**`spawn uv ENOENT`** — Claude Desktop cannot find the `uv` executable. Use the full path to `uv` in the `command` field. Run `which uv` (macOS/Linux) or `where.exe uv` (Windows) to get it.
-
-**`spawn /Users/... ENOENT` on Windows** — The config file contains a macOS/Linux-style path. Replace it with the correct Windows path using backslashes as described in the [Windows configuration section](#windows) below.
-
-**Windows Store install: config changes not taking effect** — You may be editing the wrong config file. Claude Desktop installed from the Microsoft Store reads from `AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`, not `AppData\Roaming\Claude\`.
-
-## Usage with Claude
-
-### 1. Configure Claude Desktop
-
-To use this server with Claude Desktop, you need to add it to your Claude Desktop configuration.
-
-#### macOS/Linux
-
-1. Run the following from the `intervals-mcp-server` directory to configure Claude Desktop:
+Run locally over stdio (single-user, using the env fallback credentials below):
 
 ```bash
-mcp install src/intervals_mcp_server/server.py --name "Intervals.icu" --with-editable . --env-file .env
+python -m intervals_mcp_server.server
 ```
 
-2. If you open your Claude Desktop App configuration file `claude_desktop_config.json`, it should look like this:
+For local HTTP without OAuth, set `MCP_TRANSPORT=http` and leave `MCP_ISSUER` / `MCP_RESOURCE` /
+`MCP_JWKS_URI` unset — auth is disabled when those aren't all present, and tools use the `API_KEY` /
+`ATHLETE_ID` env fallback.
 
-```json
-{
-  "mcpServers": {
-    "Intervals.icu": {
-      "command": "/Users/<USERNAME>/.local/bin/uv",
-      "args": [
-        "run",
-        "--with",
-        "mcp[cli]",
-        "--with-editable",
-        "/path/to/intervals-mcp-server",
-        "mcp",
-        "run",
-        "/path/to/intervals-mcp-server/src/intervals_mcp_server/server.py"
-      ],
-      "env": {
-        "INTERVALS_API_BASE_URL": "https://intervals.icu/api/v1",
-        "ATHLETE_ID": "<YOUR_ATHLETE_ID>",
-        "API_KEY": "<YOUR_API_KEY>",
-        "LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
+## Environment variables
 
-Where `/path/to/` is the path to the `intervals-mcp-server` code folder in your system.
+**Local / single-user fallback** (used only when there is no OAuth context):
 
-#### Windows
+- `API_KEY` — an Intervals.icu API key (Settings → API on intervals.icu).
+- `ATHLETE_ID` — your athlete id, e.g. `i12345` (from the intervals.icu URL). Must match `i?\d+`.
+- `INTERVALS_API_BASE_URL` — optional, defaults to `https://intervals.icu/api/v1`.
 
-The `mcp install` command may fail on Windows due to environment or permission issues. Instead, configure Claude Desktop manually:
+**Multi-tenant / deployment:**
 
-1. Find the Claude Desktop config file. If Claude Desktop was installed from the **Microsoft Store**, the config is located at:
+- `DATABASE_URL` — async Postgres DSN (`postgresql+asyncpg://…`) for the shared user store.
+- `INTERVALS_ENC_KEY` — base64-encoded 32-byte AES-256-GCM key used to encrypt stored API keys. Shared
+  with the UI service so both read/write the same ciphertext.
+- `MCP_ISSUER`, `MCP_RESOURCE`, `MCP_JWKS_URI` — OAuth: token issuer, the `/mcp` resource URL, and the
+  JWKS endpoint (an internal in-cluster URL, to bypass Cloudflare). Setting all three enables auth.
+- `MCP_TRANSPORT` — `stdio` (default), `sse`, or `http`/`streamable-http`. Deployment uses `http`.
+- `MCP_STATELESS_HTTP`, `MCP_JSON_RESPONSE` — HTTP tuning. The deployment sets both `true` (stateless +
+  JSON) so the distributed connector can hit any replica; stateful/SSE breaks it.
+- `FASTMCP_HOST`, `FASTMCP_PORT`, `FASTMCP_LOG_LEVEL` — HTTP bind + logging.
 
-   ```
-   C:\Users\<USERNAME>\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json
-   ```
+## Deployment
 
-   If installed via the standard installer, it may be at:
-
-   ```
-   C:\Users\<USERNAME>\AppData\Roaming\Claude\claude_desktop_config.json
-   ```
-
-   If the file or folder does not exist, create it.
-
-2. Add the following entry to `claude_desktop_config.json`, replacing the placeholders with your actual values:
-
-```json
-{
-  "mcpServers": {
-    "Intervals.icu": {
-      "command": "C:\\Users\\<USERNAME>\\.local\\bin\\uv.exe",
-      "args": [
-        "run",
-        "--with",
-        "mcp[cli]",
-        "--with-editable",
-        "C:\\path\\to\\intervals-mcp-server",
-        "mcp",
-        "run",
-        "C:\\path\\to\\intervals-mcp-server\\src\\intervals_mcp_server\\server.py"
-      ],
-      "env": {
-        "INTERVALS_API_BASE_URL": "https://intervals.icu/api/v1",
-        "ATHLETE_ID": "<YOUR_ATHLETE_ID>",
-        "API_KEY": "<YOUR_API_KEY>",
-        "LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
-
-- Use double backslashes (`\\`) for all Windows paths in JSON.
-- To find the full path to `uv.exe`, run `where.exe uv` in PowerShell.
-- To find the full path to the cloned repository, run `pwd` from inside the `intervals-mcp-server` folder.
-
-> **Note for Windows Store installs:** Claude Desktop installed from the Microsoft Store sandboxes its config under `AppData\Local\Packages\...`. Editing `AppData\Roaming\Claude\claude_desktop_config.json` will have no effect — make sure you edit the correct file.
-
-3. Restart Claude Desktop.
-
-### 2. Use the MCP server with Claude
-
-Once the server is running and Claude Desktop is configured, you can use the following tools to ask questions about your past and future activities, events, and wellness data.
-
-- `get_activities`: Retrieve a list of activities
-- `get_activity_details`: Get detailed information for a specific activity
-- `get_activity_intervals`: Get detailed interval data for a specific activity
-- `get_activity_streams`: Get raw data streams (power, heart rate, etc.) for a specific activity
-- `get_athlete_power_curves`: Get best power output curves for selected durations and time periods
-- `get_wellness_data`: Fetch wellness data
-- `get_events`: Retrieve upcoming events (workouts, races, etc.)
-- `get_event_by_id`: Get detailed information for a specific event
-- `add_or_update_event`: Create or update an event (workout, race, note, etc.)
-- `delete_event`: Delete a specific event
-- `delete_events_by_date_range`: Delete events within a date range
-- `get_custom_items`: Get custom items (charts, custom fields, zones, etc.) for an athlete
-- `get_custom_item_by_id`: Get detailed information for a specific custom item
-- `create_custom_item`: Create a new custom item for an athlete
-- `update_custom_item`: Update an existing custom item
-- `delete_custom_item`: Delete a custom item
-
-## Usage with ChatGPT
-
-ChatGPT’s beta MCP connectors can also talk to this server over the SSE transport.
-
-1. Start the server in SSE mode so it exposes the `/sse` and `/messages/` endpoints:
-
-   ```bash
-   export FASTMCP_HOST=127.0.0.1 FASTMCP_PORT=8765 MCP_TRANSPORT=sse FASTMCP_LOG_LEVEL=INFO
-   python src/intervals_mcp_server/server.py
-   ```
-
-   The startup log prints the full URLs (for example `http://127.0.0.1:8765/sse`). ChatGPT needs that public URL, so forward the port with a tool such as `ngrok http 8765` if you are not exposing the server directly.
-
-2. In ChatGPT, open **Settings → Features → Custom MCP Connectors** and click **Add**. Fill in:
-
-   - **Name**: `Intervals.icu`
-   - **MCP Server URL**: `https://<your-public-host>/sse`
-   - **Authentication**: leave as _No authentication_ unless you have protected your tunnel.
-
-   You can reuse the same `ngrok http 8765` tunnel URL here; just ensure it forwards to the host/port you exported above.
-
-3. Save the connector and open a new chat. ChatGPT will keep the SSE connection open and POST follow-up requests to the `/messages/` endpoint announced by the server. If you restart the MCP server or tunnel, rerun the SSE command and update the connector URL if it changes.
-
-## Development and testing
-
-Install development dependencies and run the test suite with:
-
-```bash
-uv sync --all-extras
-pytest -v tests
-```
-
-### Running the server locally
-
-To start the server manually (useful when developing or testing), run:
-
-```bash
-mcp run src/intervals_mcp_server/server.py
-```
-
-#### Enabling debug logging
-
-To capture server logs for debugging, wrap the command in a shell and redirect stderr to a file.
-
-**macOS/Linux** — modify your `claude_desktop_config.json` like this:
-
-```json
-{
-  "mcpServers": {
-    "Intervals.icu": {
-      "command": "/bin/bash",
-      "args": [
-        "-c",
-        "/Users/<USERNAME>/.local/bin/uv run --with 'mcp[cli]' --with-editable /path/to/intervals-mcp-server mcp run /path/to/intervals-mcp-server/src/intervals_mcp_server/server.py 2>> /path/to/intervals-mcp-server/mcp-server.log"
-      ],
-      "env": {
-        "INTERVALS_API_BASE_URL": "https://intervals.icu/api/v1",
-        "ATHLETE_ID": "<YOUR_ATHLETE_ID>",
-        "API_KEY": "<YOUR_API_KEY>",
-        "LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
-
-Then tail the log file to see output in real-time:
-
-```bash
-tail -f /path/to/intervals-mcp-server/mcp-server.log
-```
-
-**Windows** — modify your `claude_desktop_config.json` like this:
-
-```json
-{
-  "mcpServers": {
-    "Intervals.icu": {
-      "command": "powershell",
-      "args": [
-        "-Command",
-        "C:\\Users\\<USERNAME>\\.local\\bin\\uv.exe run --with 'mcp[cli]' --with-editable C:\\path\\to\\intervals-mcp-server mcp run C:\\path\\to\\intervals-mcp-server\\src\\intervals_mcp_server\\server.py 2>> C:\\path\\to\\intervals-mcp-server\\mcp-server.log"
-      ],
-      "env": {
-        "INTERVALS_API_BASE_URL": "https://intervals.icu/api/v1",
-        "ATHLETE_ID": "<YOUR_ATHLETE_ID>",
-        "API_KEY": "<YOUR_API_KEY>",
-        "LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
-
-Then monitor the log file in real-time using PowerShell:
-
-```powershell
-Get-Content C:\path\to\intervals-mcp-server\mcp-server.log -Wait
-```
+Pushes to `main` trigger Gitea CI (`.gitea/workflows/build.yaml`): it runs the test suite with the
+coverage gate, then builds and pushes a container image to
+`git.farh.net/farhoodlabs/intervalsicu-mcp`. Flux reconciles the new image onto the cluster. Database
+migrations run as an Alembic (`alembic upgrade head`) initContainer before the server starts.
 
 ## License
 
-The GNU General Public License v3.0
-
-## Featured
-
-### Glama.ai
-
-<a href="https://glama.ai/mcp/servers/@mvilanova/intervals-mcp-server">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@mvilanova/intervals-mcp-server/badge" alt="Intervals.icu Server MCP server" />
-</a>
+GNU General Public License v3.0 (inherited from the upstream project).
