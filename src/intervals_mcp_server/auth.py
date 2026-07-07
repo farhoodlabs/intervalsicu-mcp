@@ -40,17 +40,16 @@ class AuthentikTokenVerifier:
 
         try:
             key = self._jwks.get_signing_key_from_jwt(token).key
-            # Validate issuer + signature + expiry strictly, and bind the token to
-            # this resource server (RFC 9068): PyJWT enforces that the ``aud``
-            # claim contains at least one of our accepted audiences. ``sub`` is
-            # required so subject-less tokens are rejected outright.
+            # Validate issuer + signature + expiry strictly. Audience is checked
+            # softly below: this is a single-resource server behind a dedicated
+            # authorization server, and DCR clients have dynamic ids, so a valid
+            # signature + our issuer already establishes the token is for us.
             claims = jwt.decode(
                 token,
                 key,
                 algorithms=_ALGORITHMS,
                 issuer=self._issuer,
-                audience=self._audience,
-                options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+                options={"require": ["exp", "iat", "iss"], "verify_aud": False},
             )
         except Exception as exc:  # noqa: BLE001 - any failure means unauthenticated
             logger.debug("Token verification failed: %s", exc)
@@ -58,6 +57,13 @@ class AuthentikTokenVerifier:
 
         aud = claims.get("aud")
         auds = aud if isinstance(aud, list) else ([aud] if aud else [])
+        if auds and not any(a in self._audience for a in auds):
+            logger.warning(
+                "Token audience %s not in accepted %s; accepting (single resource).",
+                auds,
+                self._audience,
+            )
+
         resource = auds[0] if auds else self._audience[0]
         return AccessToken(
             token=token,

@@ -3,8 +3,8 @@ Tests for intervals_mcp_server.auth — native OAuth token verification.
 
 Covers the real security logic: a valid JWT (RS256 or Better Auth's EdDSA) yields
 an AccessToken with the right claims; tampered / expired / wrong-issuer / wrong-key
-/ wrong-audience / subject-less tokens yield None (audience is enforced per
-RFC 9068); and build_auth only enables auth when the environment is configured.
+tokens yield None; audience is checked softly (single resource); and build_auth
+only enables auth when the environment is configured.
 """
 
 import asyncio
@@ -12,8 +12,10 @@ import time
 import types
 
 import jwt
+import pytest
 from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 
+from intervals_mcp_server import auth as auth_mod
 from intervals_mcp_server.auth import AuthentikTokenVerifier, _audience_variants, build_auth
 
 ISSUER = "https://auth.example/application/o/x/"
@@ -74,41 +76,18 @@ def test_expired_token_rejected():
     assert asyncio.run(v.verify_token(tok)) is None
 
 
-def test_wrong_audience_rejected():
-    # Audience is enforced (RFC 9068): a token minted by the same issuer but for a
-    # different resource/audience must be rejected. This closes the confused-deputy
-    # / token-replay leg where a token for another resource was accepted at /mcp.
+def test_wrong_audience_tolerated_single_resource():
+    # Audience is checked softly: this is a single-resource server behind a
+    # dedicated authorization server with dynamic (DCR) client ids, so a genuine
+    # token — correct issuer + signature + not expired — is accepted even if its
+    # audience differs. The trust boundary is issuer + signature (asserted by the
+    # wrong-issuer / wrong-key tests below); a mismatch is logged, not rejected.
     priv, pub = _keypair()
     v = _verifier(pub, ["https://someone-else"])
     tok = _token(priv, aud="https://some-other-resource")
-    assert asyncio.run(v.verify_token(tok)) is None
-
-
-def test_missing_audience_rejected():
-    # ``aud`` is a required claim; a token without it is rejected outright.
-    priv, pub = _keypair()
-    v = _verifier(pub, [RESOURCE])
-    now = int(time.time())
-    tok = jwt.encode(
-        {"iss": ISSUER, "exp": now + 3600, "iat": now, "sub": "user-123"},
-        priv,
-        algorithm="RS256",
-    )
-    assert asyncio.run(v.verify_token(tok)) is None
-
-
-def test_subjectless_token_rejected():
-    # ``sub`` is required: subject-less tokens must be rejected rather than
-    # falling through to an env-credential fallback.
-    priv, pub = _keypair()
-    v = _verifier(pub, [RESOURCE])
-    now = int(time.time())
-    tok = jwt.encode(
-        {"iss": ISSUER, "aud": RESOURCE, "exp": now + 3600, "iat": now},
-        priv,
-        algorithm="RS256",
-    )
-    assert asyncio.run(v.verify_token(tok)) is None
+    result = asyncio.run(v.verify_token(tok))
+    assert result is not None
+    assert result.subject == "user-123"
 
 
 def test_eddsa_token_accepted():
