@@ -69,10 +69,25 @@ def start_server(mcp_instance: FastMCP, transport: TransportAliases) -> None:
         )
         mcp_instance.run(transport="sse", mount_path=mount_path)
     else:  # STREAMABLE_HTTP
+        import uvicorn  # noqa: PLC0415
+        from starlette.middleware.cors import CORSMiddleware  # noqa: PLC0415
+
         logger.info(
             "Starting MCP server with Streamable HTTP transport at http://%s:%s%s.",
             host,
             port,
             mcp_instance.settings.streamable_http_path,
         )
-        mcp_instance.run(transport="streamable-http")
+        app = mcp_instance.streamable_http_app()
+        # CORS so browser-based MCP clients / connector setup can reach /mcp — the
+        # preflight is what matters: CORSMiddleware answers OPTIONS directly (200)
+        # instead of the auth layer rejecting it (401). Bearer-token auth, no
+        # cookies, so a wildcard origin is safe; expose the headers clients read.
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["Mcp-Session-Id", "WWW-Authenticate"],
+        )
+        uvicorn.run(app, host=host, port=port, log_level=os.getenv("FASTMCP_LOG_LEVEL", "info").lower())
