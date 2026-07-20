@@ -187,17 +187,10 @@ def test_get_athlete_summary_success(monkeypatch):
     assert call["url"] == "/athlete/i1/athlete-summary"
     assert call["params"]["start"] == "2026-06-20"
     assert call["params"]["end"] == "2026-07-20"
-    assert "tags" not in call["params"]
     assert "Fitness (CTL): 78.5" in out
     assert "Form (TSB): 7.5" in out
     assert "By category:" in out
     assert "Ride: 8 activities" in out
-
-
-def test_get_athlete_summary_tags_split(monkeypatch):
-    calls = _patch_request(monkeypatch, SUMMARY)
-    asyncio.run(athlete.get_athlete_summary(tags="race, key-workout"))
-    assert calls[0]["params"]["tags"] == ["race", "key-workout"]
 
 
 def test_get_athlete_summary_defaults_dates(monkeypatch):
@@ -266,7 +259,8 @@ def test_update_sport_settings_elicit_decline(monkeypatch):
     calls = _patch_seq(monkeypatch, [CURRENT_SS])
     ctx = _StubCtx(action="decline")
     out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, ctx=ctx))
-    assert "you declined" in out
+    assert "did not confirm" in out
+    assert "confirm=true" not in out  # no bypass instructions after a refusal
     assert len(calls) == 1  # no PUT
 
 
@@ -274,7 +268,21 @@ def test_update_sport_settings_elicit_cancel(monkeypatch):
     _patch_seq(monkeypatch, [CURRENT_SS])
     ctx = _StubCtx(action="cancel")
     out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, ctx=ctx))
-    assert "you declined" in out
+    assert "did not confirm" in out
+
+
+def test_update_sport_settings_accept_without_confirm_refuses_hard(monkeypatch):
+    # Submitting the elicitation without ticking confirm is a refusal: the tool
+    # must stop and must NOT emit the confirm=true bypass instructions — and an
+    # explicit confirm=True param must not override the answered elicitation.
+    calls = _patch_seq(monkeypatch, [CURRENT_SS])
+    ctx = _StubCtx(action="accept", confirm=False)
+    out = asyncio.run(
+        athlete.update_sport_settings(settings_id=100, ftp=300, confirm=True, ctx=ctx)
+    )
+    assert "did not confirm" in out
+    assert "confirm=true" not in out
+    assert len(calls) == 1  # no PUT
 
 
 def test_update_sport_settings_elicit_unsupported_falls_back(monkeypatch):
@@ -307,3 +315,13 @@ def test_update_sport_settings_put_error(monkeypatch):
     _patch_seq(monkeypatch, [CURRENT_SS, {"error": True, "message": "rejected"}])
     out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, confirm=True))
     assert "Error updating sport settings: rejected" in out
+
+
+def test_update_sport_settings_empty_echo_renders_merged(monkeypatch):
+    # An empty-body 200 parses to {}; the confirmation must render the merged
+    # record (with the new FTP), not format_sport_settings({}).
+    calls = _patch_seq(monkeypatch, [CURRENT_SS, {}])
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, confirm=True))
+    assert len(calls) == 2
+    assert "FTP: 300W" in out
+    assert "Settings ID: 100" in out

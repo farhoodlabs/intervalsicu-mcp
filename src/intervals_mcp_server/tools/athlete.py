@@ -6,6 +6,7 @@ Read tools exposing the athlete's profile, per-sport training settings
 coach needs to reason about intensity and readiness.
 """
 
+import logging
 from typing import Any
 
 from mcp.server.fastmcp import Context  # pylint: disable=import-error
@@ -23,6 +24,8 @@ from intervals_mcp_server.utils.validation import resolve_date_params
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
+
+logger = logging.getLogger("intervals_icu_mcp_server")
 
 
 class _ConfirmThresholdChange(BaseModel):
@@ -96,14 +99,15 @@ async def get_sport_settings(sport: str | None = None) -> str:
 async def get_athlete_summary(
     start_date: str | None = None,
     end_date: str | None = None,
-    tags: str | None = None,
 ) -> str:
     """Get a training-load summary (fitness/fatigue/form and totals) over a date range.
+
+    Note: the underlying endpoint's ``tags`` parameter filters *athletes* (a
+    coach-facing feature), not activities, so no tag filter is offered here.
 
     Args:
         start_date: Start date in YYYY-MM-DD format (optional, defaults to 30 days ago).
         end_date: End date in YYYY-MM-DD format (optional, defaults to today).
-        tags: Optional comma-separated activity tags to filter by.
     """
     try:
         athlete_id, api_key = await credentials.resolve_caller_credentials()
@@ -112,10 +116,6 @@ async def get_athlete_summary(
 
     start_date, end_date = resolve_date_params(start_date, end_date)
     params: dict[str, Any] = {"start": start_date, "end": end_date}
-    if tags:
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-        if tag_list:
-            params["tags"] = tag_list
 
     result = await make_intervals_request(
         url=f"/athlete/{athlete_id}/athlete-summary", api_key=api_key, params=params
@@ -213,19 +213,28 @@ async def update_sport_settings(  # pylint: disable=too-many-arguments,too-many-
     sport = ", ".join(str(t) for t in (current.get("types") or [])) or f"settings {settings_id}"
     diff = "\n".join(diff_lines)
 
+    # Guardrail. If the client answers an elicitation prompt, that answer is
+    # authoritative: anything short of accept-with-confirm is a refusal and we
+    # stop WITHOUT emitting the confirm=true fallback instructions (an agentic
+    # client could otherwise use them to bypass the refusal it just received).
+    # Only when elicitation is unavailable (no ctx, or the request itself fails)
+    # do we fall back to requiring the explicit confirm flag.
     approved = False
+    elicitation_answered = False
     if ctx is not None:
         try:
             elicited = await ctx.elicit(
                 message=f"Update {sport} thresholds?\n{diff}", schema=_ConfirmThresholdChange
             )
+            elicitation_answered = True
             action = getattr(elicited, "action", None)
-            if action in ("decline", "cancel"):
-                return "Sport settings unchanged — you declined."
             data = getattr(elicited, "data", None)
             approved = action == "accept" and bool(getattr(data, "confirm", False))
-        except Exception:  # noqa: BLE001 - client without elicitation capability falls through
-            approved = False
+        except Exception as exc:  # noqa: BLE001 - capability absent or elicitation failed
+            logger.warning("Elicitation unavailable, falling back to confirm flag: %s", exc)
+
+    if elicitation_answered and not approved:
+        return "Sport settings unchanged — you did not confirm the change."
 
     if not approved and not confirm:
         return (
@@ -246,5 +255,6 @@ async def update_sport_settings(  # pylint: disable=too-many-arguments,too-many-
     if isinstance(result, dict) and "error" in result:
         return f"Error updating sport settings: {result.get('message')}"
 
-    body = result if isinstance(result, dict) else updated
+    # An empty-body 200 parses to {}; render the merged record in that case.
+    body = result if isinstance(result, dict) and result else updated
     return f"Updated {sport} settings:\n\n" + format_sport_settings(body)
