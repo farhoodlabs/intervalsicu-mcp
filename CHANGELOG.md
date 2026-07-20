@@ -15,3 +15,22 @@ AES-256-GCM-encrypted Intervals.icu API keys (Better Auth), streamable-HTTP tran
 CORS, and the full activity / event / wellness / power-curve / gear / custom-item toolset.
 
 [0.1.0]: https://git.farh.net/farhoodlabs/intervalsicu-mcp/releases/tag/v0.1.0
+
+## v0.2.0 (2026-07-20)
+
+### Feat
+
+- **wellness**: add update_wellness write tool, computed Form (TSB), date-label fix
+
+### Fix
+
+- **wellness**: harden Form/TSB and date rendering from code review
+- reset version to 0.1.0 baseline; let cz bump own versioning
+
+## v0.1.0 (2026-07-20)
+
+### Feat
+
+- **db**: Alembic migration for users table (async env, DATABASE_URL)
+- **multi-tenant**: resolve per-caller credentials in every tool
+- **multi-tenant**: data layer, encryption, and per-request credential resolver
