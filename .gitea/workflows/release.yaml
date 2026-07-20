@@ -59,6 +59,15 @@ jobs:
           fi
           if uvx --from commitizen cz bump $args; then
             after=$(uvx --from commitizen cz version --project)
+            # cz bump updates pyproject's version but not uv.lock's own-package
+            # entry, which would leave `uv sync --locked` failing at the release
+            # tag. Refresh the lock and fold it into the bump commit + tag.
+            uv lock
+            if ! git diff --quiet uv.lock; then
+              git add uv.lock
+              git commit --amend --no-edit
+              git tag -f "v$after"
+            fi
             echo "version=$after" >> "$GITHUB_OUTPUT"
             echo "do_release=true" >> "$GITHUB_OUTPUT"
             echo "Bumped $before -> $after"
