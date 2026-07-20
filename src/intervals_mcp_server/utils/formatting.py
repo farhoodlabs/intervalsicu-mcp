@@ -816,3 +816,65 @@ def format_power_curves(
         lines.append("")
 
     return "\n".join(lines)
+
+
+def format_activity_search_results(results: list[dict[str, Any]]) -> str:
+    """Format activity search hits into a compact one-line-per-result list."""
+    lines = [f"Found {len(results)} activit{'y' if len(results) == 1 else 'ies'}:", ""]
+    for r in results:
+        date = r.get("start_date_local", "")
+        if isinstance(date, str) and len(date) > 10:
+            date = date[:10]
+        extra = []
+        if r.get("distance") is not None:
+            extra.append(f"{r['distance']}m")
+        if r.get("moving_time") is not None:
+            extra.append(f"{r['moving_time']}s")
+        if r.get("race"):
+            extra.append("RACE")
+        line = " | ".join([date or "?", str(r.get("type", "?")), str(r.get("name", "Unnamed"))])
+        if extra:
+            line += "  (" + ", ".join(extra) + ")"
+        line += f"  [id: {r.get('id', 'N/A')}]"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def format_best_efforts(efforts: list[dict[str, Any]], stream: str) -> str:
+    """Format best-effort windows for a stream (power/hr/pace) into text."""
+    lines = [f"Best Efforts ({stream}):", ""]
+    for e in efforts:
+        parts = []
+        if e.get("duration") is not None:
+            parts.append(_format_duration_label(int(e["duration"])))
+        if e.get("distance") is not None:
+            parts.append(f"{e['distance']}m")
+        label = " / ".join(parts) if parts else "effort"
+        idx = f"[idx {e.get('start_index', '?')}-{e.get('end_index', '?')}]"
+        lines.append(f"- {label}: avg {e.get('average', 'N/A')}  {idx}")
+    return "\n".join(lines)
+
+
+def format_interval_stats(interval: dict[str, Any]) -> str:
+    """Format a computed interval-stats block (a single Interval) into text."""
+    lines = ["Interval Stats:", ""]
+    for key, label, unit in [
+        ("moving_time", "Moving Time", "s"),
+        ("distance", "Distance", "m"),
+        ("average_watts", "Avg Power", "W"),
+        ("weighted_average_watts", "Weighted Avg Power", "W"),
+        ("max_watts", "Max Power", "W"),
+        ("average_watts_kg", "Avg Power", "W/kg"),
+        ("intensity", "Intensity", ""),
+        ("training_load", "Training Load", ""),
+        ("joules", "Work", "J"),
+        ("decoupling", "Decoupling", "%"),
+        ("average_heartrate", "Avg HR", "bpm"),
+        ("max_heartrate", "Max HR", "bpm"),
+        ("average_cadence", "Avg Cadence", "rpm"),
+        ("average_speed", "Avg Speed", "m/s"),
+        ("gap", "GAP", "m/s"),
+    ]:
+        if interval.get(key) is not None:
+            lines.append(f"- {label}: {interval[key]}{(' ' + unit) if unit else ''}")
+    return "\n".join(lines)

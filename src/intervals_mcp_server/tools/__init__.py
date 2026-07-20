@@ -10,9 +10,12 @@ from mcp.server.fastmcp import FastMCP  # pylint: disable=import-error
 # Note: Tools register themselves via @mcp.tool() decorators when imported
 from intervals_mcp_server.tools.activities import (  # noqa: F401
     get_activities,
+    get_activity_best_efforts,
     get_activity_details,
+    get_activity_interval_stats,
     get_activity_intervals,
     get_activity_streams,
+    search_activities,
 )
 from intervals_mcp_server.tools.events import (  # noqa: F401
     add_or_update_event,
@@ -65,6 +68,9 @@ __all__ = [
     "get_activity_details",
     "get_activity_intervals",
     "get_activity_streams",
+    "search_activities",
+    "get_activity_best_efforts",
+    "get_activity_interval_stats",
     "get_events",
     "get_event_by_id",
     "delete_event",
