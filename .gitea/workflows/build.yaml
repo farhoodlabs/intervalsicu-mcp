@@ -19,13 +19,14 @@ jobs:
       ATHLETE_ID: i1
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install (editable, with dev extras)
-        run: pip install --quiet -e ".[dev]"
+      - name: Install uv (self-contained; avoids the cold-cache setup-python failure)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies (Python 3.12, locked)
+        run: uv sync --all-extras --locked --python 3.12
       - name: Test + coverage gate (>=90%)
-        run: pytest
+        run: uv run --locked pytest
 
   build:
     needs: test
