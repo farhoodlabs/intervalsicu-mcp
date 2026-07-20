@@ -16,6 +16,12 @@ CORS, and the full activity / event / wellness / power-curve / gear / custom-ite
 
 [0.1.0]: https://git.farh.net/farhoodlabs/intervalsicu-mcp/releases/tag/v0.1.0
 
+## v0.2.1 (2026-07-20)
+
+### Fix
+
+- **release**: sync uv.lock into the bump commit and tag
+
 ## v0.2.0 (2026-07-20)
 
 ### Feat
