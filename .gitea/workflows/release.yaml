@@ -1,0 +1,88 @@
+name: release
+
+# Cut a release as an action, not a local command. Manually triggered ("Run
+# workflow"): bumps the version from conventional commits (or a forced level),
+# updates CHANGELOG.md, tags vX.Y.Z, pushes both, and creates a Gitea release.
+# Uses uv/commitizen because actions/setup-python is broken on these runners.
+on:
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: "Bump level (auto = detect from conventional commits)"
+        required: false
+        default: auto
+        type: choice
+        options: [auto, PATCH, MINOR, MAJOR]
+      dry_run:
+        description: "Dry run — compute + show, but do NOT push or release"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Needs push + release rights. The auto token works with contents:write;
+          # if your runner's token can't push, set a PAT secret RELEASE_TOKEN.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Install uv (self-contained; avoids the broken setup-python)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Git identity
+        run: |
+          git config user.name "release-bot"
+          git config user.email "release-bot@farhoodlabs.com"
+
+      - name: Bump version + changelog + tag
+        id: bump
+        run: |
+          before=$(uvx --from commitizen cz version --project)
+          args="--yes"
+          [ "${{ inputs.increment }}" != "auto" ] && args="$args --increment ${{ inputs.increment }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "== DRY RUN =="
+            uvx --from commitizen cz bump $args --dry-run || true
+            echo "do_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if uvx --from commitizen cz bump $args; then
+            after=$(uvx --from commitizen cz version --project)
+            echo "version=$after" >> "$GITHUB_OUTPUT"
+            echo "do_release=true" >> "$GITHUB_OUTPUT"
+            echo "Bumped $before -> $after"
+          else
+            echo "No releasable commits since the last tag — nothing to do."
+            echo "do_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push commit + tag
+        if: ${{ steps.bump.outputs.do_release == 'true' }}
+        run: git push origin HEAD:${{ github.ref_name }} --follow-tags
+
+      - name: Create Gitea release
+        if: ${{ steps.bump.outputs.do_release == 'true' }}
+        run: |
+          v="${{ steps.bump.outputs.version }}"
+          # Body = this version's section from CHANGELOG.md (fallback to a stub).
+          body=$(awk "/^## \\[$v\\]/{f=1;next} /^## \\[/{f=0} f" CHANGELOG.md)
+          [ -z "$body" ] && body="Release v$v"
+          jq -n --arg tag "v$v" --arg name "v$v" --arg body "$body" \
+            '{tag_name:$tag, name:$name, body:$body, draft:false, prerelease:false}' \
+          | curl -sf -X POST \
+              -H "Authorization: token ${{ secrets.RELEASE_TOKEN || github.token }}" \
+              -H "Content-Type: application/json" \
+              --data @- \
+              "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases"
+          echo "Created release v$v"
