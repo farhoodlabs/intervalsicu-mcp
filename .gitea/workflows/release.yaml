@@ -87,7 +87,10 @@ jobs:
           # Body = this version's section from CHANGELOG.md (fallback to a stub).
           # Commitizen writes headings as "## vX.Y.Z (date)", so match that form
           # (not the Keep-a-Changelog "## [X.Y.Z]" brackets) and stop at the next.
-          body=$(awk "/^## v$v/{f=1;next} /^## v/{f=0} f" CHANGELOG.md)
+          # Escape dots and anchor on the trailing space so the start pattern is an
+          # exact version match ("## v0.3.0 " won't re-arm on "## v0.3.01 ...").
+          ve=$(printf '%s' "$v" | sed 's/\./\\./g')
+          body=$(awk "/^## v$ve /{f=1;next} /^## v/{f=0} f" CHANGELOG.md)
           [ -z "$body" ] && body="Release v$v"
           jq -n --arg tag "v$v" --arg name "v$v" --arg body "$body" \
             '{tag_name:$tag, name:$name, body:$body, draft:false, prerelease:false}' \
