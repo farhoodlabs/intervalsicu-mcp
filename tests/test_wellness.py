@@ -126,3 +126,11 @@ def test_update_wellness_non_dict_result(monkeypatch):
     _patch_request(monkeypatch, [])
     out = asyncio.run(wellness.update_wellness(date="2025-05-24", weight=80))
     assert out == "Updated wellness for 2025-05-24."
+
+
+def test_update_wellness_echo_without_date_shows_written_date(monkeypatch):
+    # If the API echo omits id/date, the confirmation body must not read "Date: N/A".
+    _patch_request(monkeypatch, {"weight": 80})
+    out = asyncio.run(wellness.update_wellness(date="2025-05-24", weight=80))
+    assert "Date: 2025-05-24" in out
+    assert "Date: N/A" not in out

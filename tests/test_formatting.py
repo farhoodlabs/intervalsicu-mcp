@@ -82,6 +82,20 @@ def test_format_wellness_entry_prefers_explicit_date_over_id():
     assert "Date: 2024-06-02" in result
 
 
+def test_format_wellness_entry_null_date_falls_back_to_id():
+    """A present-but-null `date` falls back to `id`, not 'None'."""
+    result = format_wellness_entry({"id": "2024-06-01", "date": None, "ctl": 50})
+    assert "Date: 2024-06-01" in result
+    assert "Date: None" not in result
+
+
+def test_format_wellness_entry_non_numeric_ctl_atl_does_not_crash():
+    """Non-numeric ctl/atl must not raise; Form is simply omitted."""
+    result = format_wellness_entry({"id": "2024-06-01", "ctl": "n/a", "atl": "n/a"})
+    assert "Form (TSB)" not in result
+    assert "Date: 2024-06-01" in result
+
+
 def test_format_wellness_entry_include_all_fields():
     """
     Test that format_wellness_entry with include_all_fields=True includes additional unknown fields.

@@ -180,6 +180,10 @@ async def update_wellness(  # pylint: disable=too-many-arguments,too-many-positi
         return f"Error updating wellness data: {result.get('message')}"
 
     # Intervals.icu echoes back the full updated record; render it for confirmation.
+    # If the echo omits the date, inject the one we wrote to so the confirmation
+    # body doesn't read "Date: N/A" under a dated header.
     if isinstance(result, dict):
+        if not result.get("id") and not result.get("date"):
+            result["date"] = date
         return f"Updated wellness for {date}:\n\n" + format_wellness_entry(result)
     return f"Updated wellness for {date}."

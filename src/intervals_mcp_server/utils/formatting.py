@@ -167,9 +167,11 @@ def _format_training_metrics(entries: dict[str, Any]) -> list[str]:
 
     # Form (a.k.a. TSB, Training Stress Balance) = CTL - ATL. Intervals.icu does
     # not return this on the wellness record, so compute it when both components
-    # are present. Positive = fresher/tapered, negative = carrying fatigue.
+    # are present AND numeric. The isinstance guard keeps a non-numeric value from
+    # raising out of the formatter and taking down the whole wellness render.
+    # Positive = fresher/tapered, negative = carrying fatigue.
     ctl, atl = entries.get("ctl"), entries.get("atl")
-    if ctl is not None and atl is not None:
+    if isinstance(ctl, (int, float)) and isinstance(atl, (int, float)):
         training_metrics.append(f"- Form (TSB): {ctl - atl:.1f}")
 
     for k, label in [
@@ -350,8 +352,10 @@ def format_wellness_entry(entries: dict[str, Any], include_all_fields: bool = Fa
 
     lines = ["Wellness Data:"]
     # The wellness record's own date lives in `id` (e.g. "2025-05-24"); some call
-    # sites also inject an explicit `date`. Prefer `date`, fall back to `id`.
-    lines.append(f"Date: {entries.get('date', entries.get('id', 'N/A'))}")
+    # sites also inject an explicit `date`. Prefer `date`, fall back to `id`. Use
+    # `or` chaining (not get-with-default) so a present-but-null `date` still falls
+    # back rather than rendering "Date: None".
+    lines.append(f"Date: {entries.get('date') or entries.get('id') or 'N/A'}")
     lines.append("")
 
     training_metrics = _format_training_metrics(entries)
