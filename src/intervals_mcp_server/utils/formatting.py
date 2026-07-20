@@ -161,6 +161,18 @@ def _format_training_metrics(entries: dict[str, Any]) -> list[str]:
     for k, label in [
         ("ctl", "Fitness (CTL)"),
         ("atl", "Fatigue (ATL)"),
+    ]:
+        if entries.get(k) is not None:
+            training_metrics.append(f"- {label}: {entries[k]}")
+
+    # Form (a.k.a. TSB, Training Stress Balance) = CTL - ATL. Intervals.icu does
+    # not return this on the wellness record, so compute it when both components
+    # are present. Positive = fresher/tapered, negative = carrying fatigue.
+    ctl, atl = entries.get("ctl"), entries.get("atl")
+    if ctl is not None and atl is not None:
+        training_metrics.append(f"- Form (TSB): {ctl - atl:.1f}")
+
+    for k, label in [
         ("rampRate", "Ramp Rate"),
         ("ctlLoad", "CTL Load"),
         ("atlLoad", "ATL Load"),
@@ -337,7 +349,9 @@ def format_wellness_entry(entries: dict[str, Any], include_all_fields: bool = Fa
         entries.get("tempRestingHR")
 
     lines = ["Wellness Data:"]
-    lines.append(f"Date: {entries.get('id', 'N/A')}")
+    # The wellness record's own date lives in `id` (e.g. "2025-05-24"); some call
+    # sites also inject an explicit `date`. Prefer `date`, fall back to `id`.
+    lines.append(f"Date: {entries.get('date', entries.get('id', 'N/A'))}")
     lines.append("")
 
     training_metrics = _format_training_metrics(entries)

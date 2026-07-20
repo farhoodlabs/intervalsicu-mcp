@@ -64,6 +64,24 @@ def test_format_wellness_entry():
     assert result == expected_result
 
 
+def test_format_wellness_entry_computes_form_tsb():
+    """Form (TSB) is computed as CTL - ATL when both are present."""
+    result = format_wellness_entry({"id": "2024-06-01", "ctl": 50, "atl": 65})
+    assert "Form (TSB): -15.0" in result
+
+
+def test_format_wellness_entry_no_form_without_both_components():
+    """Form is omitted if either CTL or ATL is missing."""
+    result = format_wellness_entry({"id": "2024-06-01", "ctl": 50})
+    assert "Form (TSB)" not in result
+
+
+def test_format_wellness_entry_prefers_explicit_date_over_id():
+    """An explicit `date` field wins over `id` for the Date line."""
+    result = format_wellness_entry({"id": "2024-06-01", "date": "2024-06-02", "ctl": 50})
+    assert "Date: 2024-06-02" in result
+
+
 def test_format_wellness_entry_include_all_fields():
     """
     Test that format_wellness_entry with include_all_fields=True includes additional unknown fields.

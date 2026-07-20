@@ -4,6 +4,7 @@ Date: 2025-05-24
 Training Metrics:
 - Fitness (CTL): 70.87253
 - Fatigue (ATL): 91.97159
+- Form (TSB): -21.1
 - Ramp Rate: 6.997368
 - CTL Load: 299
 - ATL Load: 299
