@@ -878,3 +878,101 @@ def format_interval_stats(interval: dict[str, Any]) -> str:
         if interval.get(key) is not None:
             lines.append(f"- {label}: {interval[key]}{(' ' + unit) if unit else ''}")
     return "\n".join(lines)
+
+
+def _format_step_intensity(step: dict[str, Any]) -> str:
+    """Render a workout step's intensity target(s) from raw workout_doc JSON."""
+    bits = []
+    for key, label in [("power", ""), ("hr", "HR"), ("pace", "Pace"), ("cadence", "Cad")]:
+        v = step.get(key)
+        if not isinstance(v, dict):
+            continue
+        units = v.get("units", "")
+        if v.get("start") is not None and v.get("end") is not None:
+            val = f"{v['start']}-{v['end']}"
+        elif v.get("value") is not None:
+            val = f"{v['value']}"
+        else:
+            continue
+        bits.append(f"{(label + ' ') if label else ''}{val}{units}")
+    return ", ".join(bits)
+
+
+def _format_workout_step(step: dict[str, Any], depth: int = 0) -> list[str]:
+    """Recursively render one workout_doc step (handles repeat blocks). Depth-capped."""
+    indent = "  " * (depth + 1)
+    if depth > 6:
+        return [f"{indent}- ...(nested too deep)"]
+    reps = step.get("reps")
+    substeps = step.get("steps")
+    if reps and isinstance(substeps, list):
+        lines = [f"{indent}{reps}x:"]
+        for sub in substeps:
+            if isinstance(sub, dict):
+                lines.extend(_format_workout_step(sub, depth + 1))
+        return lines
+    parts = []
+    if step.get("duration") is not None:
+        parts.append(_format_duration_label(int(step["duration"])))
+    if step.get("distance") is not None:
+        parts.append(f"{step['distance']}m")
+    tag = ""
+    if step.get("warmup"):
+        tag = " (warmup)"
+    elif step.get("cooldown"):
+        tag = " (cooldown)"
+    elif step.get("freeride"):
+        tag = " (free ride)"
+    intensity = _format_step_intensity(step)
+    if step.get("ramp") and intensity:
+        intensity = "ramp " + intensity
+    label = " ".join(parts) if parts else "step"
+    detail = f" @ {intensity}" if intensity else ""
+    text = step.get("text")
+    return [f"{indent}- {label}{detail}{tag}{(' — ' + text) if text else ''}"]
+
+
+def format_workout_summary(workout: dict[str, Any]) -> str:
+    """Format one library workout as a compact one-line list entry."""
+    line = " | ".join([str(workout.get("name", "Unnamed")), str(workout.get("type", "?"))])
+    extra = []
+    if workout.get("icu_training_load") is not None:
+        extra.append(f"load {workout['icu_training_load']}")
+    if workout.get("moving_time") is not None:
+        extra.append(f"{workout['moving_time']}s")
+    if workout.get("folder_id") is not None:
+        extra.append(f"folder {workout['folder_id']}")
+    if extra:
+        line += "  (" + ", ".join(extra) + ")"
+    return line + f"  [id: {workout.get('id', 'N/A')}]"
+
+
+def format_workout_details(workout: dict[str, Any]) -> str:
+    """Format a library workout in full, including its structured steps."""
+    lines = [f"Workout: {workout.get('name', 'Unnamed')}", f"ID: {workout.get('id', 'N/A')}"]
+    for key, label, unit in [
+        ("type", "Type", ""),
+        ("sub_type", "Sub-type", ""),
+        ("indoor", "Indoor", ""),
+        ("moving_time", "Duration", "s"),
+        ("distance", "Distance", "m"),
+        ("icu_training_load", "Training Load", ""),
+        ("icu_intensity", "Intensity", ""),
+        ("carbs_per_hour", "Carbs", "g/hr"),
+        ("folder_id", "Folder", ""),
+    ]:
+        if workout.get(key) is not None:
+            lines.append(f"{label}: {workout[key]}{(' ' + unit) if unit else ''}")
+    if workout.get("description"):
+        lines.append(f"Description: {workout['description']}")
+    tags = workout.get("tags")
+    if isinstance(tags, list) and tags:
+        lines.append("Tags: " + ", ".join(str(t) for t in tags))
+
+    doc = workout.get("workout_doc")
+    if isinstance(doc, dict) and isinstance(doc.get("steps"), list) and doc["steps"]:
+        lines += ["", "Steps:"]
+        for step in doc["steps"]:
+            if isinstance(step, dict):
+                lines.extend(_format_workout_step(step))
+    return "\n".join(lines)

@@ -98,6 +98,10 @@ from intervals_mcp_server.tools.athlete import (  # pylint: disable=wrong-import
     get_athlete_summary,
     get_sport_settings,
 )
+from intervals_mcp_server.tools.workouts import (  # pylint: disable=wrong-import-position  # noqa: E402
+    get_workout,
+    get_workouts,
+)
 
 from intervals_mcp_server.tools.power_curves import get_athlete_power_curves  # pylint: disable=wrong-import-position  # noqa: E402
 from intervals_mcp_server.tools.custom_items import (  # pylint: disable=wrong-import-position  # noqa: E402
@@ -132,6 +136,8 @@ __all__ = [
     "get_athlete_profile",
     "get_sport_settings",
     "get_athlete_summary",
+    "get_workouts",
+    "get_workout",
     "get_gear_list",
     "get_athlete_power_curves",
     "get_custom_items",
