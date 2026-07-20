@@ -36,6 +36,7 @@ from intervals_mcp_server.tools.power_curves import (  # noqa: F401
 )
 from intervals_mcp_server.tools.gear import get_gear_list  # noqa: F401
 from intervals_mcp_server.tools.wellness import (  # noqa: F401
+    get_training_readiness,
     get_wellness_data,
     update_wellness,
     update_wellness_bulk,
@@ -89,6 +90,7 @@ __all__ = [
     "get_wellness_data",
     "update_wellness",
     "update_wellness_bulk",
+    "get_training_readiness",
     "get_athlete_profile",
     "get_sport_settings",
     "get_athlete_summary",

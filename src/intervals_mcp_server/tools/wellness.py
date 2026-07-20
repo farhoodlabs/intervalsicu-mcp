@@ -4,13 +4,14 @@ Wellness-related MCP tools for Intervals.icu.
 This module contains tools for retrieving athlete wellness data.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
 from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.formatting import format_wellness_entry
+from intervals_mcp_server.utils.readiness import assess_readiness, render_readiness
 from intervals_mcp_server.utils.validation import resolve_date_params, validate_date
 
 # Import mcp instance from shared module for tool registration
@@ -280,3 +281,48 @@ async def update_wellness_bulk(entries: list[dict[str, Any]]) -> str:
         return f"Error updating wellness data: {result.get('message')}"
 
     return f"Updated {len(records)} day(s):\n" + "\n".join(summaries)
+
+
+@mcp.tool()
+async def get_training_readiness(days: int = 45) -> str:
+    """Assess training readiness from recent wellness data.
+
+    Synthesizes the athlete's recent wellness history into a readiness read:
+    HRV-guided (7-day rolling lnRMSSD vs baseline +/- smallest worthwhile change),
+    resting-HR and sleep trends, and subjective inputs (soreness/fatigue/stress/
+    mood/motivation). When there is too little data — notably fewer than ~2 weeks
+    of HRV — the verdict is withheld rather than guessed, and the report lists which
+    signals it could and could not use.
+
+    Args:
+        days: How many days of history to analyze (default 45; minimum 14 is enforced).
+    """
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
+    end = datetime.now()
+    start = end - timedelta(days=max(days, 14))
+    params = {"oldest": start.strftime("%Y-%m-%d"), "newest": end.strftime("%Y-%m-%d")}
+
+    result = await make_intervals_request(
+        url=f"/athlete/{athlete_id_to_use}/wellness", api_key=api_key, params=params
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Error fetching wellness data: {result.get('message')}"
+
+    records: list[dict[str, Any]] = []
+    if isinstance(result, dict):
+        for date_str, data in result.items():
+            if isinstance(data, dict):
+                data.setdefault("id", date_str)
+                records.append(data)
+    elif isinstance(result, list):
+        records = [r for r in result if isinstance(r, dict)]
+
+    if not records:
+        return "No wellness data found to assess readiness."
+
+    return render_readiness(assess_readiness(records))
