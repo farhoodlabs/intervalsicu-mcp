@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "intervalsicu-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Model Context Protocol server for Intervals.icu (FastMCP, native OAuth)"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
@@ -124,3 +124,14 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.uv]
 index-url = "https://pypi.org/simple"
+
+# Semantic versioning via Commitizen (conventional commits). Source of truth is the
+# [project].version above. Bump + changelog + tag with:  uvx --from commitizen cz bump
+# (feat -> minor, fix -> patch; pre-1.0 so breaking changes stay in 0.x). Tags are vX.Y.Z.
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+major_version_zero = true
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
