@@ -3,6 +3,7 @@ name: build-image
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -46,15 +47,25 @@ jobs:
         run: |
           echo "${{ secrets.REGISTRY_TOKEN }}" | docker login git.farh.net -u cpfarhood --password-stdin
 
-      - name: Build image
+      - name: Build and push image
         run: |
-          docker build --progress=plain \
-            -t "${IMAGE}:latest" \
-            -t "${IMAGE}:${GITHUB_SHA}" \
-            .
+          # Always tag the immutable commit SHA. On a version tag (refs/tags/vX.Y.Z)
+          # also publish the semver (X.Y.Z) so images can be pinned, and move :latest.
+          # On a main-branch push, publish :latest.
+          REFS="${IMAGE}:${GITHUB_SHA}"
+          case "${GITHUB_REF}" in
+            refs/tags/v*)
+              VERSION="${GITHUB_REF#refs/tags/v}"
+              REFS="${REFS} ${IMAGE}:${VERSION} ${IMAGE}:latest"
+              ;;
+            *)
+              REFS="${REFS} ${IMAGE}:latest"
+              ;;
+          esac
 
-      - name: Push image
-        run: |
-          docker push "${IMAGE}:latest"
-          docker push "${IMAGE}:${GITHUB_SHA}"
-          echo "pushed ${IMAGE}:latest and ${IMAGE}:${GITHUB_SHA}"
+          BUILD_ARGS=""
+          for r in ${REFS}; do BUILD_ARGS="${BUILD_ARGS} -t ${r}"; done
+          docker build --progress=plain ${BUILD_ARGS} .
+
+          for r in ${REFS}; do docker push "${r}"; done
+          echo "pushed: ${REFS}"
