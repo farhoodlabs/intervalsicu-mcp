@@ -12,10 +12,8 @@ import time
 import types
 
 import jwt
-import pytest
 from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 
-from intervals_mcp_server import auth as auth_mod
 from intervals_mcp_server.auth import AuthentikTokenVerifier, _audience_variants, build_auth
 
 ISSUER = "https://auth.example/application/o/x/"

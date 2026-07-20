@@ -112,7 +112,7 @@ def test_add_event_posts_when_no_event_id(monkeypatch):
     rec = _patch(monkeypatch, lambda _k: {"id": "e99"})
     out = _run(
         events.add_or_update_event(
-            workout_type="Ride", name="Threshold", 
+            workout_type="Ride", name="Threshold",
             start_date="2026-07-10", moving_time=3600, distance=40000,
             workout_doc=WorkoutDoc(description="d", steps=[Step(duration=600)]),
         )
@@ -128,7 +128,7 @@ def test_update_event_puts_when_event_id(monkeypatch):
     rec = _patch(monkeypatch, lambda _k: {"id": "e5"})
     _run(
         events.add_or_update_event(
-            workout_type="Ride", name="Threshold", 
+            workout_type="Ride", name="Threshold",
             event_id="e5", start_date="2026-07-10",
         )
     )

@@ -8,7 +8,6 @@ and the error/empty branches.
 
 import asyncio
 
-import pytest
 
 from intervals_mcp_server.tools import custom_items
 
@@ -60,7 +59,7 @@ def test_create_builds_full_payload(monkeypatch):
     rec = _patch(monkeypatch, lambda _k: {"id": 9, "name": "Chart", "type": "FITNESS_CHART"})
     out = _run(
         custom_items.create_custom_item(
-            name="Chart", item_type="FITNESS_CHART", 
+            name="Chart", item_type="FITNESS_CHART",
             description="desc", content={"a": 1}, visibility="PRIVATE",
         )
     )

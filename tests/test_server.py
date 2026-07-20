@@ -465,7 +465,7 @@ def test_get_athlete_power_curves(monkeypatch):
     result = asyncio.run(
         get_athlete_power_curves(
             activity_type="Ride",
-            
+
         )
     )
     assert "Power Curves (Ride):" in result
@@ -492,7 +492,7 @@ def test_get_athlete_power_curves_custom_durations(monkeypatch):
         get_athlete_power_curves(
             activity_type="Ride",
             durations=[5, 60],
-            
+
         )
     )
     assert "5s:" in result
@@ -518,7 +518,7 @@ def test_get_athlete_power_curves_without_normalised(monkeypatch):
         get_athlete_power_curves(
             activity_type="Ride",
             include_normalised=False,
-            
+
         )
     )
     assert "W/kg" not in result
@@ -542,7 +542,7 @@ def test_get_athlete_power_curves_date_validation(monkeypatch):
         get_athlete_power_curves(
             activity_type="Ride",
             start_date="2026-01-01",
-            
+
         )
     )
     assert "Error" in result
@@ -566,7 +566,7 @@ def test_get_athlete_power_curves_no_curves_selected(monkeypatch):
             activity_type="Ride",
             this_season=False,
             last_season=False,
-            
+
         )
     )
     assert "Error" in result
@@ -675,7 +675,7 @@ def test_create_custom_item_with_string_content(monkeypatch):
         create_custom_item(
             name="Activity Field",
             item_type="ACTIVITY_FIELD",
-            
+
             content='{"expression": "icu_training_load"}',  # type: ignore[arg-type]
         )
     )
@@ -744,7 +744,7 @@ def test_create_custom_item_with_invalid_json_content(monkeypatch):
         create_custom_item(
             name="Bad Item",
             item_type="FITNESS_CHART",
-            
+
             content="not valid json",  # type: ignore[arg-type]
         )
     )
