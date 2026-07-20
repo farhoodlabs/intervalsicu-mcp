@@ -75,6 +75,36 @@ def _patch_request(monkeypatch, result):
     return calls
 
 
+def _patch_seq(monkeypatch, results):
+    """Patch make_intervals_request to return queued results, one per call."""
+    calls: list[dict] = []
+    seq = iter(results)
+
+    async def fake(**kwargs):
+        calls.append(kwargs)
+        return next(seq)
+
+    monkeypatch.setattr(athlete, "make_intervals_request", fake)
+    return calls
+
+
+class _StubCtx:
+    """Minimal stand-in for FastMCP Context.elicit used by the guardrail tests."""
+
+    def __init__(self, action="accept", confirm=True, raise_exc=False):
+        self._action = action
+        self._confirm = confirm
+        self._raise = raise_exc
+        self.elicit_calls = 0
+
+    async def elicit(self, message, schema):  # noqa: ARG002 - signature parity
+        self.elicit_calls += 1
+        if self._raise:
+            raise RuntimeError("client does not support elicitation")
+        data = type("Data", (), {"confirm": self._confirm})()
+        return type("Result", (), {"action": self._action, "data": data})()
+
+
 # --------------------------------------------------------------------------- #
 # get_athlete_profile
 # --------------------------------------------------------------------------- #
@@ -186,3 +216,94 @@ def test_get_athlete_summary_empty(monkeypatch):
 def test_get_athlete_summary_error(monkeypatch):
     _patch_request(monkeypatch, {"error": True, "message": "bad"})
     assert "Error fetching athlete summary: bad" in asyncio.run(athlete.get_athlete_summary())
+
+
+# --------------------------------------------------------------------------- #
+# update_sport_settings (dual-guardrail write)
+# --------------------------------------------------------------------------- #
+CURRENT_SS = [{"id": 100, "types": ["Ride"], "ftp": 280, "lthr": 165}]
+
+
+def test_update_sport_settings_no_fields(monkeypatch):
+    calls = _patch_seq(monkeypatch, [])
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100))
+    assert "No settings provided" in out
+    assert calls == []  # returns before any fetch
+
+
+def test_update_sport_settings_refuses_without_confirm_or_ctx(monkeypatch):
+    calls = _patch_seq(monkeypatch, [CURRENT_SS])  # only the GET happens
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300))
+    assert "⚠️ This will change your Ride thresholds" in out
+    assert "ftp: 280 -> 300" in out
+    assert "re-run with confirm=true" in out
+    assert len(calls) == 1 and calls[0]["url"] == "/athlete/i1/sport-settings"  # no PUT
+
+
+def test_update_sport_settings_confirm_true_writes(monkeypatch):
+    calls = _patch_seq(monkeypatch, [CURRENT_SS, {"id": 100, "types": ["Ride"], "ftp": 300}])
+    out = asyncio.run(
+        athlete.update_sport_settings(settings_id=100, ftp=300, recalc_hr_zones=True, confirm=True)
+    )
+    put = calls[1]
+    assert put["method"] == "PUT"
+    assert put["url"] == "/athlete/i1/sport-settings/100"
+    assert put["params"] == {"recalcHrZones": True}
+    assert put["data"]["ftp"] == 300  # merged into the full record
+    assert "Updated Ride settings" in out
+
+
+def test_update_sport_settings_elicit_accept_writes(monkeypatch):
+    calls = _patch_seq(monkeypatch, [CURRENT_SS, {"id": 100, "types": ["Ride"], "ftp": 300}])
+    ctx = _StubCtx(action="accept", confirm=True)
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, ctx=ctx))
+    assert ctx.elicit_calls == 1
+    assert len(calls) == 2 and calls[1]["method"] == "PUT"
+    assert "Updated Ride settings" in out
+
+
+def test_update_sport_settings_elicit_decline(monkeypatch):
+    calls = _patch_seq(monkeypatch, [CURRENT_SS])
+    ctx = _StubCtx(action="decline")
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, ctx=ctx))
+    assert "you declined" in out
+    assert len(calls) == 1  # no PUT
+
+
+def test_update_sport_settings_elicit_cancel(monkeypatch):
+    _patch_seq(monkeypatch, [CURRENT_SS])
+    ctx = _StubCtx(action="cancel")
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, ctx=ctx))
+    assert "you declined" in out
+
+
+def test_update_sport_settings_elicit_unsupported_falls_back(monkeypatch):
+    calls = _patch_seq(monkeypatch, [CURRENT_SS])
+    ctx = _StubCtx(raise_exc=True)  # client without elicitation capability
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, ctx=ctx))
+    assert "re-run with confirm=true" in out
+    assert len(calls) == 1  # refused, no PUT
+
+
+def test_update_sport_settings_unknown_id(monkeypatch):
+    _patch_seq(monkeypatch, [CURRENT_SS])
+    out = asyncio.run(athlete.update_sport_settings(settings_id=999, ftp=300, confirm=True))
+    assert "No sport settings found with ID 999" in out
+
+
+def test_update_sport_settings_no_op(monkeypatch):
+    _patch_seq(monkeypatch, [CURRENT_SS])
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=280, confirm=True))
+    assert "No changes" in out
+
+
+def test_update_sport_settings_fetch_error(monkeypatch):
+    _patch_seq(monkeypatch, [{"error": True, "message": "down"}])
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, confirm=True))
+    assert "Error fetching current sport settings: down" in out
+
+
+def test_update_sport_settings_put_error(monkeypatch):
+    _patch_seq(monkeypatch, [CURRENT_SS, {"error": True, "message": "rejected"}])
+    out = asyncio.run(athlete.update_sport_settings(settings_id=100, ftp=300, confirm=True))
+    assert "Error updating sport settings: rejected" in out

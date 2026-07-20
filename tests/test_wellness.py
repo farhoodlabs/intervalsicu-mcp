@@ -134,3 +134,88 @@ def test_update_wellness_echo_without_date_shows_written_date(monkeypatch):
     out = asyncio.run(wellness.update_wellness(date="2025-05-24", weight=80))
     assert "Date: 2025-05-24" in out
     assert "Date: N/A" not in out
+
+
+# --------------------------------------------------------------------------- #
+# update_wellness_bulk
+# --------------------------------------------------------------------------- #
+def test_update_wellness_bulk_success(monkeypatch):
+    calls = _patch_request(monkeypatch, [{"id": "2026-07-18"}, {"id": "2026-07-19"}])
+    out = asyncio.run(
+        wellness.update_wellness_bulk(
+            [
+                {"date": "2026-07-18", "weight": 80, "carbohydrates": 300},
+                {"date": "2026-07-19", "sleep_hours": 8},
+            ]
+        )
+    )
+    call = calls[0]
+    assert call["method"] == "PUT"
+    assert call["url"] == "/athlete/i1/wellness-bulk"
+    body = call["data"]
+    assert isinstance(body, list) and len(body) == 2
+    assert body[0]["id"] == "2026-07-18"
+    assert body[0]["weight"] == 80
+    assert body[0]["carbohydrates"] == 300  # camelCase mapping shared with update_wellness
+    assert body[1]["sleepSecs"] == 8 * 3600
+    assert "Updated 2 day(s)" in out
+
+
+def test_update_wellness_bulk_mapping_matches_single(monkeypatch):
+    # The bulk payload for a day must equal the single-day payload for the same fields
+    # (plus the id) — proving the shared _wellness_payload helper prevents drift.
+    fields = {"weight": 78, "resting_hr": 50, "sleep_hours": 7.5, "fat": 60, "locked": True}
+    from intervals_mcp_server.tools.wellness import _wellness_payload
+
+    single = _wellness_payload(fields)
+    calls = _patch_request(monkeypatch, [{}])
+    asyncio.run(wellness.update_wellness_bulk([{"date": "2026-07-18", **fields}]))
+    bulk_entry = {k: v for k, v in calls[0]["data"][0].items() if k != "id"}
+    assert bulk_entry == single
+
+
+def test_update_wellness_bulk_invalid_date_rejects_whole_batch(monkeypatch):
+    calls = _patch_request(monkeypatch, [{}])
+    out = asyncio.run(
+        wellness.update_wellness_bulk(
+            [{"date": "2026-07-18", "weight": 80}, {"date": "not-a-date", "weight": 81}]
+        )
+    )
+    assert "Error in entry 1" in out
+    assert calls == []  # no partial write
+
+
+def test_update_wellness_bulk_missing_date(monkeypatch):
+    calls = _patch_request(monkeypatch, [{}])
+    out = asyncio.run(wellness.update_wellness_bulk([{"weight": 80}]))
+    assert "entry 0 is missing a 'date'" in out
+    assert calls == []
+
+
+def test_update_wellness_bulk_entry_no_fields(monkeypatch):
+    calls = _patch_request(monkeypatch, [{}])
+    out = asyncio.run(wellness.update_wellness_bulk([{"date": "2026-07-18"}]))
+    assert "has no wellness fields" in out
+    assert calls == []
+
+
+def test_update_wellness_bulk_empty(monkeypatch):
+    calls = _patch_request(monkeypatch, [{}])
+    out = asyncio.run(wellness.update_wellness_bulk([]))
+    assert "No entries provided" in out
+    assert calls == []
+
+
+def test_update_wellness_bulk_too_many(monkeypatch):
+    calls = _patch_request(monkeypatch, [{}])
+    out = asyncio.run(
+        wellness.update_wellness_bulk([{"date": "2026-01-01", "weight": 80}] * 93)
+    )
+    assert "Too many entries" in out
+    assert calls == []
+
+
+def test_update_wellness_bulk_error(monkeypatch):
+    _patch_request(monkeypatch, {"error": True, "message": "boom"})
+    out = asyncio.run(wellness.update_wellness_bulk([{"date": "2026-07-18", "weight": 80}]))
+    assert "Error updating wellness data: boom" in out
