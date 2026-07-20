@@ -250,6 +250,12 @@ async def update_wellness_bulk(entries: list[dict[str, Any]]) -> str:
     if len(entries) > 92:
         return f"Too many entries ({len(entries)}). Limit a bulk update to 92 days."
 
+    # Recognized entry keys: the shared snake_case field names plus date/sleep_hours.
+    # Anything else (e.g. API-style camelCase like "restingHR") is rejected rather
+    # than silently dropped — otherwise values the caller asked to record would be
+    # lost behind a success message.
+    allowed_keys = {snake for snake, _ in _WELLNESS_FIELD_MAP} | {"date", "sleep_hours"}
+
     records: list[dict[str, Any]] = []
     summaries: list[str] = []
     for i, entry in enumerate(entries):
@@ -262,6 +268,13 @@ async def update_wellness_bulk(entries: list[dict[str, Any]]) -> str:
             date = validate_date(str(raw_date))
         except ValueError as exc:
             return f"Error in entry {i}: {exc}"
+
+        unknown = sorted(set(entry) - allowed_keys)
+        if unknown:
+            return (
+                f"Error: entry {i} ({date}) has unrecognized field(s): {', '.join(unknown)}. "
+                f"Valid fields: {', '.join(sorted(allowed_keys - {'date'}))}."
+            )
 
         payload = _wellness_payload(entry)
         if not payload:
@@ -325,4 +338,6 @@ async def get_training_readiness(days: int = 45) -> str:
     if not records:
         return "No wellness data found to assess readiness."
 
-    return render_readiness(assess_readiness(records))
+    # Anchor the calendar windows on today so weeks-old data reads as "no recent
+    # data" rather than being presented as the athlete's current state.
+    return render_readiness(assess_readiness(records, reference_date=end.strftime("%Y-%m-%d")))

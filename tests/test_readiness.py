@@ -7,6 +7,7 @@ layer stubbed. Fixtures are built so verdicts are unambiguous.
 """
 
 import asyncio
+from datetime import date, timedelta
 
 from intervals_mcp_server.tools import wellness
 from intervals_mcp_server.utils import readiness
@@ -15,6 +16,14 @@ from intervals_mcp_server.utils import readiness
 def _days(specs: list[dict]) -> list[dict]:
     """Build wellness records with sequential dates from a list of field dicts."""
     return [{"id": f"2026-06-{i + 1:02d}", **spec} for i, spec in enumerate(specs)]
+
+
+def _days_ending_today(specs: list[dict]) -> list[dict]:
+    """Like _days, but the last record is dated today (for tool-level tests)."""
+    start = date.today() - timedelta(days=len(specs) - 1)
+    return [
+        {"id": (start + timedelta(days=i)).isoformat(), **spec} for i, spec in enumerate(specs)
+    ]
 
 
 def _stable(n: int, **fields) -> list[dict]:
@@ -48,6 +57,13 @@ def test_hrv_elevated_warn():
     assert readiness.hrv_signal(_days(baseline + recent))["level"] == "warn"
 
 
+def test_hrv_constant_baseline_small_dip_is_not_alert():
+    # A near-constant baseline gives SWC ~ 0; the floor must keep a trivial
+    # 50 -> 49 fluctuation from producing a false "Compromised" alert.
+    recs = _days([{"hrv": 50} for _ in range(23)] + [{"hrv": 49} for _ in range(7)])
+    assert readiness.hrv_signal(recs)["level"] == "ok"
+
+
 # --------------------------------------------------------------------------- #
 # RHR / sleep signals
 # --------------------------------------------------------------------------- #
@@ -58,6 +74,13 @@ def test_rhr_elevated_warn():
 
 def test_rhr_normal_ok():
     assert readiness.rhr_signal(_stable(20, restingHR=48))["level"] == "ok"
+
+
+def test_rhr_minimum_days_is_nodata_not_self_baseline():
+    # With only 7 samples there is no disjoint baseline; a uniformly-elevated
+    # (ill) week must NOT read "ok" from being compared against itself.
+    sig = readiness.rhr_signal(_stable(7, restingHR=58))
+    assert sig["level"] == "nodata"
 
 
 def test_sleep_short_warn():
@@ -123,6 +146,22 @@ def test_form_context_computed():
 # --------------------------------------------------------------------------- #
 # render + tool integration
 # --------------------------------------------------------------------------- #
+def test_stale_data_withholds_verdict():
+    # Daily logging that STOPPED 3 weeks ago must not produce a current verdict:
+    # with today as the reference date every calendar window is empty.
+    old = _days([{"hrv": 50 + (i % 3), "restingHR": 48, "sleepSecs": 28800} for i in range(30)])
+    out = readiness.assess_readiness(old, reference_date=date.today().isoformat())
+    assert out["verdict"] == "insufficient"
+    assert all(s["level"] == "nodata" for s in out["signals"])
+
+
+def test_sleep_not_logged_recently_is_nodata():
+    recs = _days([{"sleepSecs": 28800} for _ in range(10)])
+    sig = readiness.sleep_signal(recs, reference_date="2026-07-01")  # 3 weeks later
+    assert sig["level"] == "nodata"
+    assert "no sleep logged since" in sig["detail"]
+
+
 def test_render_insufficient_mentions_logging():
     out = readiness.render_readiness(readiness.assess_readiness(_stable(3, restingHR=48)))
     assert "Verdict withheld" in out
@@ -131,8 +170,13 @@ def test_render_insufficient_mentions_logging():
 
 def test_get_training_readiness_tool(monkeypatch):
     # Wellness API returns a date-keyed dict; the tool must normalize and assess it.
+    start = date.today() - timedelta(days=29)
     records = {
-        f"2026-06-{i + 1:02d}": {"hrv": 50 + (i % 3), "restingHR": 48, "sleepSecs": 28800}
+        (start + timedelta(days=i)).isoformat(): {
+            "hrv": 50 + (i % 3),
+            "restingHR": 48,
+            "sleepSecs": 28800,
+        }
         for i in range(30)
     }
     calls: list[dict] = []
