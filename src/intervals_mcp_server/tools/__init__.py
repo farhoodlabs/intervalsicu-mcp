@@ -10,9 +10,12 @@ from mcp.server.fastmcp import FastMCP  # pylint: disable=import-error
 # Note: Tools register themselves via @mcp.tool() decorators when imported
 from intervals_mcp_server.tools.activities import (  # noqa: F401
     get_activities,
+    get_activity_best_efforts,
     get_activity_details,
+    get_activity_interval_stats,
     get_activity_intervals,
     get_activity_streams,
+    search_activities,
 )
 from intervals_mcp_server.tools.events import (  # noqa: F401
     add_or_update_event,
@@ -33,9 +36,18 @@ from intervals_mcp_server.tools.power_curves import (  # noqa: F401
 )
 from intervals_mcp_server.tools.gear import get_gear_list  # noqa: F401
 from intervals_mcp_server.tools.wellness import (  # noqa: F401
+    get_training_readiness,
     get_wellness_data,
     update_wellness,
+    update_wellness_bulk,
 )
+from intervals_mcp_server.tools.athlete import (  # noqa: F401
+    get_athlete_profile,
+    get_athlete_summary,
+    get_sport_settings,
+    update_sport_settings,
+)
+from intervals_mcp_server.tools.workouts import get_workout, get_workouts  # noqa: F401
 
 
 def register_tools(mcp_instance: FastMCP) -> None:
@@ -60,6 +72,9 @@ __all__ = [
     "get_activity_details",
     "get_activity_intervals",
     "get_activity_streams",
+    "search_activities",
+    "get_activity_best_efforts",
+    "get_activity_interval_stats",
     "get_events",
     "get_event_by_id",
     "delete_event",
@@ -74,4 +89,12 @@ __all__ = [
     "get_gear_list",
     "get_wellness_data",
     "update_wellness",
+    "update_wellness_bulk",
+    "get_training_readiness",
+    "get_athlete_profile",
+    "get_sport_settings",
+    "get_athlete_summary",
+    "update_sport_settings",
+    "get_workouts",
+    "get_workout",
 ]

@@ -71,6 +71,9 @@ config = get_config()
 # Import tool modules to register them (tools register themselves via @mcp.tool() decorators)
 # Import tool functions for re-export
 from intervals_mcp_server.tools.activities import (  # pylint: disable=wrong-import-position  # noqa: E402
+    get_activity_best_efforts,
+    get_activity_interval_stats,
+    search_activities,
     add_activity_message,
     get_activities,
     get_activity_details,
@@ -87,9 +90,22 @@ from intervals_mcp_server.tools.events import (  # pylint: disable=wrong-import-
 )
 from intervals_mcp_server.tools.gear import get_gear_list  # pylint: disable=wrong-import-position  # noqa: E402
 from intervals_mcp_server.tools.wellness import (  # pylint: disable=wrong-import-position  # noqa: E402
+    get_training_readiness,
     get_wellness_data,
     update_wellness,
+    update_wellness_bulk,
 )
+from intervals_mcp_server.tools.athlete import (  # pylint: disable=wrong-import-position  # noqa: E402
+    get_athlete_profile,
+    get_athlete_summary,
+    get_sport_settings,
+    update_sport_settings,
+)
+from intervals_mcp_server.tools.workouts import (  # pylint: disable=wrong-import-position  # noqa: E402
+    get_workout,
+    get_workouts,
+)
+
 from intervals_mcp_server.tools.power_curves import get_athlete_power_curves  # pylint: disable=wrong-import-position  # noqa: E402
 from intervals_mcp_server.tools.custom_items import (  # pylint: disable=wrong-import-position  # noqa: E402
     create_custom_item,
@@ -110,6 +126,9 @@ __all__ = [
     "get_activity_intervals",
     "get_activity_messages",
     "get_activity_streams",
+    "search_activities",
+    "get_activity_best_efforts",
+    "get_activity_interval_stats",
     "get_events",
     "get_event_by_id",
     "delete_event",
@@ -117,6 +136,14 @@ __all__ = [
     "add_or_update_event",
     "get_wellness_data",
     "update_wellness",
+    "update_wellness_bulk",
+    "get_training_readiness",
+    "get_athlete_profile",
+    "get_sport_settings",
+    "get_athlete_summary",
+    "update_sport_settings",
+    "get_workouts",
+    "get_workout",
     "get_gear_list",
     "get_athlete_power_curves",
     "get_custom_items",

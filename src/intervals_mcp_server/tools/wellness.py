@@ -4,17 +4,59 @@ Wellness-related MCP tools for Intervals.icu.
 This module contains tools for retrieving athlete wellness data.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from intervals_mcp_server import credentials
 from intervals_mcp_server.api.client import make_intervals_request
 from intervals_mcp_server.credentials import CredentialError
 from intervals_mcp_server.utils.formatting import format_wellness_entry
+from intervals_mcp_server.utils.readiness import assess_readiness, render_readiness
 from intervals_mcp_server.utils.validation import resolve_date_params, validate_date
 
 # Import mcp instance from shared module for tool registration
 from intervals_mcp_server.mcp_instance import mcp  # noqa: F401
+
+# snake_case tool param -> Intervals.icu camelCase wellness field. `sleep_hours`
+# is handled separately (converted to sleepSecs). Shared by the single-day and
+# bulk write tools so their field mapping can never drift.
+_WELLNESS_FIELD_MAP: list[tuple[str, str]] = [
+    ("weight", "weight"),
+    ("resting_hr", "restingHR"),
+    ("hrv", "hrv"),
+    ("sleep_quality", "sleepQuality"),
+    ("calories_consumed", "kcalConsumed"),
+    ("carbohydrates", "carbohydrates"),
+    ("protein", "protein"),
+    ("fat", "fatTotal"),
+    ("hydration_volume", "hydrationVolume"),
+    ("hydration_score", "hydration"),
+    ("soreness", "soreness"),
+    ("fatigue", "fatigue"),
+    ("stress", "stress"),
+    ("mood", "mood"),
+    ("motivation", "motivation"),
+    ("injury", "injury"),
+    ("comments", "comments"),
+    ("locked", "locked"),
+]
+
+
+def _wellness_payload(fields: dict[str, Any]) -> dict[str, Any]:
+    """Map snake_case wellness fields to the Intervals.icu camelCase payload.
+
+    Only non-None values are included. ``sleep_hours`` becomes ``sleepSecs`` (with
+    -1 passing through unscaled as the clear sentinel).
+    """
+    payload: dict[str, Any] = {}
+    for snake, camel in _WELLNESS_FIELD_MAP:
+        value = fields.get(snake)
+        if value is not None:
+            payload[camel] = value
+    sleep_hours = fields.get("sleep_hours")
+    if sleep_hours is not None:
+        payload["sleepSecs"] = -1 if sleep_hours == -1 else int(sleep_hours * 3600)
+    return payload
 
 
 @mcp.tool()
@@ -136,35 +178,29 @@ async def update_wellness(  # pylint: disable=too-many-arguments,too-many-positi
     except ValueError as exc:
         return f"Error: {exc}"
 
-    # Sleep is passed in hours but stored as seconds; -1 is the clear sentinel and
-    # must pass through unscaled.
-    sleep_secs: int | None = None
-    if sleep_hours is not None:
-        sleep_secs = -1 if sleep_hours == -1 else int(sleep_hours * 3600)
-
-    # Map snake_case tool params to the Intervals.icu camelCase wellness fields.
-    field_map: list[tuple[str, Any]] = [
-        ("weight", weight),
-        ("restingHR", resting_hr),
-        ("hrv", hrv),
-        ("sleepSecs", sleep_secs),
-        ("sleepQuality", sleep_quality),
-        ("kcalConsumed", calories_consumed),
-        ("carbohydrates", carbohydrates),
-        ("protein", protein),
-        ("fatTotal", fat),
-        ("hydrationVolume", hydration_volume),
-        ("hydration", hydration_score),
-        ("soreness", soreness),
-        ("fatigue", fatigue),
-        ("stress", stress),
-        ("mood", mood),
-        ("motivation", motivation),
-        ("injury", injury),
-        ("comments", comments),
-        ("locked", locked),
-    ]
-    payload: dict[str, Any] = {k: v for k, v in field_map if v is not None}
+    payload = _wellness_payload(
+        {
+            "weight": weight,
+            "resting_hr": resting_hr,
+            "hrv": hrv,
+            "sleep_hours": sleep_hours,
+            "sleep_quality": sleep_quality,
+            "calories_consumed": calories_consumed,
+            "carbohydrates": carbohydrates,
+            "protein": protein,
+            "fat": fat,
+            "hydration_volume": hydration_volume,
+            "hydration_score": hydration_score,
+            "soreness": soreness,
+            "fatigue": fatigue,
+            "stress": stress,
+            "mood": mood,
+            "motivation": motivation,
+            "injury": injury,
+            "comments": comments,
+            "locked": locked,
+        }
+    )
 
     if not payload:
         return "No wellness fields provided. Pass at least one field to update."
@@ -187,3 +223,121 @@ async def update_wellness(  # pylint: disable=too-many-arguments,too-many-positi
             result["date"] = date
         return f"Updated wellness for {date}:\n\n" + format_wellness_entry(result)
     return f"Updated wellness for {date}."
+
+
+@mcp.tool()
+async def update_wellness_bulk(entries: list[dict[str, Any]]) -> str:
+    """Create or update multiple days of wellness data in a single call.
+
+    Writes to PUT /athlete/{id}/wellness-bulk. Each entry is a dict with a ``date``
+    (YYYY-MM-DD) plus any of the same fields as update_wellness: weight, resting_hr,
+    hrv, sleep_hours, sleep_quality, calories_consumed, carbohydrates, protein, fat,
+    hydration_volume, hydration_score, soreness, fatigue, stress, mood, motivation,
+    injury, comments, locked. Pass -1 to clear a numeric field. Every date is
+    validated up front — if any entry is invalid the whole batch is rejected, so
+    there are no partial writes.
+
+    Args:
+        entries: List of per-day wellness dicts, each with a ``date`` and one or more fields.
+    """
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
+    if not entries:
+        return "No entries provided. Pass at least one day to update."
+    if len(entries) > 92:
+        return f"Too many entries ({len(entries)}). Limit a bulk update to 92 days."
+
+    # Recognized entry keys: the shared snake_case field names plus date/sleep_hours.
+    # Anything else (e.g. API-style camelCase like "restingHR") is rejected rather
+    # than silently dropped — otherwise values the caller asked to record would be
+    # lost behind a success message.
+    allowed_keys = {snake for snake, _ in _WELLNESS_FIELD_MAP} | {"date", "sleep_hours"}
+
+    records: list[dict[str, Any]] = []
+    summaries: list[str] = []
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            return f"Error: entry {i} is not an object."
+        raw_date = entry.get("date")
+        if not raw_date:
+            return f"Error: entry {i} is missing a 'date'."
+        try:
+            date = validate_date(str(raw_date))
+        except ValueError as exc:
+            return f"Error in entry {i}: {exc}"
+
+        unknown = sorted(set(entry) - allowed_keys)
+        if unknown:
+            return (
+                f"Error: entry {i} ({date}) has unrecognized field(s): {', '.join(unknown)}. "
+                f"Valid fields: {', '.join(sorted(allowed_keys - {'date'}))}."
+            )
+
+        payload = _wellness_payload(entry)
+        if not payload:
+            return f"Error: entry {i} ({date}) has no wellness fields to update."
+        payload["id"] = date
+        records.append(payload)
+        summaries.append(f"{date}: {', '.join(k for k in payload if k != 'id')}")
+
+    result = await make_intervals_request(
+        url=f"/athlete/{athlete_id_to_use}/wellness-bulk",
+        api_key=api_key,
+        method="PUT",
+        data=records,
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Error updating wellness data: {result.get('message')}"
+
+    return f"Updated {len(records)} day(s):\n" + "\n".join(summaries)
+
+
+@mcp.tool()
+async def get_training_readiness(days: int = 45) -> str:
+    """Assess training readiness from recent wellness data.
+
+    Synthesizes the athlete's recent wellness history into a readiness read:
+    HRV-guided (7-day rolling lnRMSSD vs baseline +/- smallest worthwhile change),
+    resting-HR and sleep trends, and subjective inputs (soreness/fatigue/stress/
+    mood/motivation). When there is too little data — notably fewer than ~2 weeks
+    of HRV — the verdict is withheld rather than guessed, and the report lists which
+    signals it could and could not use.
+
+    Args:
+        days: How many days of history to analyze (default 45; minimum 14 is enforced).
+    """
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
+    end = datetime.now()
+    start = end - timedelta(days=max(days, 14))
+    params = {"oldest": start.strftime("%Y-%m-%d"), "newest": end.strftime("%Y-%m-%d")}
+
+    result = await make_intervals_request(
+        url=f"/athlete/{athlete_id_to_use}/wellness", api_key=api_key, params=params
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Error fetching wellness data: {result.get('message')}"
+
+    records: list[dict[str, Any]] = []
+    if isinstance(result, dict):
+        for date_str, data in result.items():
+            if isinstance(data, dict):
+                data.setdefault("id", date_str)
+                records.append(data)
+    elif isinstance(result, list):
+        records = [r for r in result if isinstance(r, dict)]
+
+    if not records:
+        return "No wellness data found to assess readiness."
+
+    # Anchor the calendar windows on today so weeks-old data reads as "no recent
+    # data" rather than being presented as the athlete's current state.
+    return render_readiness(assess_readiness(records, reference_date=end.strftime("%Y-%m-%d")))

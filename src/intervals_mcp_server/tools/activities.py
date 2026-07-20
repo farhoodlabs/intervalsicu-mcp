@@ -14,7 +14,14 @@ from intervals_mcp_server.tools.gear import (
     resolve_gear_for_activity,
     resolve_gear_for_activities,
 )
-from intervals_mcp_server.utils.formatting import format_activity_message, format_activity_summary, format_intervals
+from intervals_mcp_server.utils.formatting import (
+    format_activity_message,
+    format_activity_search_results,
+    format_activity_summary,
+    format_best_efforts,
+    format_interval_stats,
+    format_intervals,
+)
 from intervals_mcp_server.utils.validation import resolve_date_params
 
 # Import mcp instance from shared module for tool registration
@@ -405,3 +412,110 @@ async def add_activity_message(
     if msg_id is not None:
         return f"Successfully added message (ID: {msg_id}) to activity {activity_id}."
     return f"Message appears to have been added to activity {activity_id}, but no ID was returned. Please verify manually."
+
+
+@mcp.tool()
+async def search_activities(query: str, limit: int = 20) -> str:
+    """Search the athlete's activities by name/keyword.
+
+    Args:
+        query: Search text matched against activity name/description (required).
+        limit: Maximum number of results to return (default 20).
+    """
+    try:
+        athlete_id_to_use, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
+    if not query or not query.strip():
+        return "Error: a non-empty search query is required."
+
+    params: dict[str, Any] = {"q": query.strip(), "limit": limit}
+    result = await make_intervals_request(
+        url=f"/athlete/{athlete_id_to_use}/activities/search", api_key=api_key, params=params
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Error searching activities: {result.get('message')}"
+
+    results = [r for r in result if isinstance(r, dict)] if isinstance(result, list) else []
+    if not results:
+        return f"No activities found matching '{query}'."
+    return format_activity_search_results(results)
+
+
+@mcp.tool()
+async def get_activity_best_efforts(
+    activity_id: str,
+    stream: str = "watts",
+    duration: int | None = None,
+    distance: float | None = None,
+    count: int | None = None,
+) -> str:
+    """Get the best efforts (peak values over windows) for an activity.
+
+    Args:
+        activity_id: The Intervals.icu activity ID.
+        stream: Data stream to analyze — e.g. "watts", "heartrate", "pace" (default "watts").
+        duration: Optional window duration in seconds to target.
+        distance: Optional window distance in meters to target.
+        count: Optional maximum number of efforts to return.
+    """
+    try:
+        _athlete_id, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
+    params: dict[str, Any] = {"stream": stream}
+    if duration is not None:
+        params["duration"] = duration
+    if distance is not None:
+        params["distance"] = distance
+    if count is not None:
+        params["count"] = count
+
+    result = await make_intervals_request(
+        url=f"/activity/{activity_id}/best-efforts", api_key=api_key, params=params
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Error fetching best efforts: {result.get('message')}"
+
+    efforts = result.get("efforts") if isinstance(result, dict) else None
+    if not efforts:
+        return f"No best-effort data found for activity {activity_id} (stream: {stream})."
+    return format_best_efforts([e for e in efforts if isinstance(e, dict)], stream)
+
+
+@mcp.tool()
+async def get_activity_interval_stats(activity_id: str, start_index: int, end_index: int) -> str:
+    """Compute aggregate stats for an index range of an activity's data streams.
+
+    start_index/end_index are positions in the activity's streams (as seen in the
+    streams or interval output). This computes metrics for that slice — it does NOT
+    list the activity's own intervals (use get_activity_intervals for that).
+
+    Args:
+        activity_id: The Intervals.icu activity ID.
+        start_index: Start position in the activity streams (required).
+        end_index: End position in the activity streams (required, > start_index).
+    """
+    try:
+        _athlete_id, api_key = await credentials.resolve_caller_credentials()
+    except CredentialError as exc:
+        return str(exc)
+
+    if start_index < 0 or end_index <= start_index:
+        return "Error: end_index must be greater than start_index and both non-negative."
+
+    params: dict[str, Any] = {"start_index": start_index, "end_index": end_index}
+    result = await make_intervals_request(
+        url=f"/activity/{activity_id}/interval-stats", api_key=api_key, params=params
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        return f"Error fetching interval stats: {result.get('message')}"
+
+    if not isinstance(result, dict) or not result:
+        return f"No interval stats found for activity {activity_id} ({start_index}-{end_index})."
+    return format_interval_stats(result)

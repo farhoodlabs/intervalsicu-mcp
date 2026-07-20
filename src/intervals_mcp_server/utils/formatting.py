@@ -420,6 +420,146 @@ def format_wellness_entry(entries: dict[str, Any], include_all_fields: bool = Fa
     return "\n".join(lines)
 
 
+def format_athlete_profile(athlete: dict[str, Any]) -> str:
+    """Format an athlete profile into a readable string.
+
+    Renders identity/physiology basics. The embedded per-sport settings blob is
+    only summarised (a count) — get_sport_settings renders the detail.
+    """
+    name = athlete.get("name") or " ".join(
+        p for p in [athlete.get("firstname"), athlete.get("lastname")] if p
+    ) or "Unknown"
+    lines = ["Athlete Profile:", "", f"Name: {name}", f"ID: {athlete.get('id', 'N/A')}"]
+
+    weight = athlete.get("weight")
+    if weight is None:
+        weight = athlete.get("icu_weight")
+    for label, value, unit in [
+        ("Sex", athlete.get("sex"), ""),
+        ("Date of Birth", athlete.get("icu_date_of_birth"), ""),
+        ("Weight", weight, "kg"),
+        ("Resting HR", athlete.get("icu_resting_hr"), "bpm"),
+        ("Timezone", athlete.get("timezone"), ""),
+        ("Units", athlete.get("measurement_preference"), ""),
+    ]:
+        if value is not None and value != "":
+            lines.append(f"{label}: {value}{(' ' + unit) if unit else ''}")
+
+    location = ", ".join(
+        p for p in [athlete.get("city"), athlete.get("state"), athlete.get("country")] if p
+    )
+    if location:
+        lines.append(f"Location: {location}")
+    if athlete.get("icu_coach"):
+        lines.append("Role: Coach")
+    if athlete.get("bio"):
+        lines.append(f"Bio: {athlete['bio']}")
+
+    sport_settings = athlete.get("sportSettings") or athlete.get("icu_type_settings")
+    if isinstance(sport_settings, list) and sport_settings:
+        lines.append(
+            f"Sport Settings: {len(sport_settings)} sport(s) configured "
+            "(use get_sport_settings for FTP/zones/thresholds)"
+        )
+    return "\n".join(lines)
+
+
+def _format_zone_line(label: str, zones: Any, names: Any, unit: str = "") -> str | None:
+    """Render a zone-boundary array, pairing with names when they line up."""
+    if not isinstance(zones, list) or not zones:
+        return None
+    if isinstance(names, list) and len(names) == len(zones):
+        parts = [f"{n}: {z}{unit}" for n, z in zip(names, zones, strict=True)]
+    else:
+        parts = [f"{z}{unit}" for z in zones]
+    return f"{label}: " + ", ".join(parts)
+
+
+def format_sport_settings(settings: dict[str, Any]) -> str:
+    """Format one per-sport settings record (FTP, zones, thresholds) into text.
+
+    The record ``id`` is always shown — it is the identifier update_sport_settings
+    needs to target a specific sport's settings.
+    """
+    types = settings.get("types") or []
+    sport = ", ".join(str(t) for t in types) if types else "Unknown"
+    lines = [f"Sport Settings — {sport}:", f"Settings ID: {settings.get('id', 'N/A')}"]
+
+    power_bits = []
+    for key, label, unit in [
+        ("ftp", "FTP", "W"),
+        ("indoor_ftp", "Indoor FTP", "W"),
+        ("w_prime", "W'", "J"),
+        ("p_max", "Pmax", "W"),
+    ]:
+        if settings.get(key) is not None:
+            power_bits.append(f"{label}: {settings[key]}{unit}")
+    if power_bits:
+        lines += ["", "Power:"] + [f"- {b}" for b in power_bits]
+        zone_line = _format_zone_line("Zones", settings.get("power_zones"), settings.get("power_zone_names"))
+        if zone_line:
+            lines.append(f"- {zone_line}")
+
+    hr_bits = []
+    for key, label in [("lthr", "LTHR"), ("max_hr", "Max HR")]:
+        if settings.get(key) is not None:
+            hr_bits.append(f"{label}: {settings[key]} bpm")
+    if hr_bits:
+        lines += ["", "Heart Rate:"] + [f"- {b}" for b in hr_bits]
+        zone_line = _format_zone_line("Zones", settings.get("hr_zones"), settings.get("hr_zone_names"))
+        if zone_line:
+            lines.append(f"- {zone_line}")
+
+    if settings.get("threshold_pace") is not None:
+        units = settings.get("pace_units", "")
+        lines += ["", "Pace:", f"- Threshold: {settings['threshold_pace']} {units}".rstrip()]
+        zone_line = _format_zone_line("Zones", settings.get("pace_zones"), settings.get("pace_zone_names"))
+        if zone_line:
+            lines.append(f"- {zone_line}")
+
+    defaults = []
+    for key, label in [("warmup_time", "Warmup"), ("cooldown_time", "Cooldown")]:
+        if settings.get(key) is not None:
+            defaults.append(f"{label}: {settings[key]}s")
+    if defaults:
+        lines += ["", "Defaults: " + ", ".join(defaults)]
+    return "\n".join(lines)
+
+
+def format_athlete_summary(summary: dict[str, Any]) -> str:
+    """Format a training-load summary (fitness/fatigue/form + totals) into text."""
+    lines: list[str] = []
+    if summary.get("date"):
+        lines.append(f"Period ending {summary['date']}:")
+    for key, label, unit in [
+        ("count", "Activities", ""),
+        ("moving_time", "Moving Time", "s"),
+        ("distance", "Distance", "m"),
+        ("total_elevation_gain", "Elevation Gain", "m"),
+        ("training_load", "Training Load", ""),
+        ("calories", "Calories", "kcal"),
+        ("fitness", "Fitness (CTL)", ""),
+        ("fatigue", "Fatigue (ATL)", ""),
+        ("form", "Form (TSB)", ""),
+        ("rampRate", "Ramp Rate", ""),
+        ("eftp", "eFTP", "W"),
+    ]:
+        if summary.get(key) is not None:
+            lines.append(f"- {label}: {summary[key]}{(' ' + unit) if unit else ''}")
+
+    categories = summary.get("byCategory")
+    if isinstance(categories, list) and categories:
+        lines.append("By category:")
+        for cat in categories:
+            if not isinstance(cat, dict):
+                continue
+            lines.append(
+                f"  - {cat.get('category', '?')}: {cat.get('count', 0)} activities, "
+                f"load {cat.get('training_load', 'N/A')}, {cat.get('moving_time', 'N/A')}s"
+            )
+    return "\n".join(lines) if lines else "No summary metrics available."
+
+
 def format_event_summary(event: dict[str, Any]) -> str:
     """Format a basic event summary into a readable string."""
 
@@ -675,4 +815,164 @@ def format_power_curves(
             lines.append(" ".join(parts))
         lines.append("")
 
+    return "\n".join(lines)
+
+
+def format_activity_search_results(results: list[dict[str, Any]]) -> str:
+    """Format activity search hits into a compact one-line-per-result list."""
+    lines = [f"Found {len(results)} activit{'y' if len(results) == 1 else 'ies'}:", ""]
+    for r in results:
+        date = r.get("start_date_local", "")
+        if isinstance(date, str) and len(date) > 10:
+            date = date[:10]
+        extra = []
+        if r.get("distance") is not None:
+            extra.append(f"{r['distance']}m")
+        if r.get("moving_time") is not None:
+            extra.append(f"{r['moving_time']}s")
+        if r.get("race"):
+            extra.append("RACE")
+        line = " | ".join([date or "?", str(r.get("type", "?")), str(r.get("name", "Unnamed"))])
+        if extra:
+            line += "  (" + ", ".join(extra) + ")"
+        line += f"  [id: {r.get('id', 'N/A')}]"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def format_best_efforts(efforts: list[dict[str, Any]], stream: str) -> str:
+    """Format best-effort windows for a stream (power/hr/pace) into text."""
+    lines = [f"Best Efforts ({stream}):", ""]
+    for e in efforts:
+        parts = []
+        if e.get("duration") is not None:
+            parts.append(_format_duration_label(int(e["duration"])))
+        if e.get("distance") is not None:
+            parts.append(f"{e['distance']}m")
+        label = " / ".join(parts) if parts else "effort"
+        idx = f"[idx {e.get('start_index', '?')}-{e.get('end_index', '?')}]"
+        lines.append(f"- {label}: avg {e.get('average', 'N/A')}  {idx}")
+    return "\n".join(lines)
+
+
+def format_interval_stats(interval: dict[str, Any]) -> str:
+    """Format a computed interval-stats block (a single Interval) into text."""
+    lines = ["Interval Stats:", ""]
+    for key, label, unit in [
+        ("moving_time", "Moving Time", "s"),
+        ("distance", "Distance", "m"),
+        ("average_watts", "Avg Power", "W"),
+        ("weighted_average_watts", "Weighted Avg Power", "W"),
+        ("max_watts", "Max Power", "W"),
+        ("average_watts_kg", "Avg Power", "W/kg"),
+        ("intensity", "Intensity", ""),
+        ("training_load", "Training Load", ""),
+        ("joules", "Work", "J"),
+        ("decoupling", "Decoupling", "%"),
+        ("average_heartrate", "Avg HR", "bpm"),
+        ("max_heartrate", "Max HR", "bpm"),
+        ("average_cadence", "Avg Cadence", "rpm"),
+        ("average_speed", "Avg Speed", "m/s"),
+        ("gap", "GAP", "m/s"),
+    ]:
+        if interval.get(key) is not None:
+            lines.append(f"- {label}: {interval[key]}{(' ' + unit) if unit else ''}")
+    return "\n".join(lines)
+
+
+def _format_step_intensity(step: dict[str, Any]) -> str:
+    """Render a workout step's intensity target(s) from raw workout_doc JSON."""
+    bits = []
+    for key, label in [("power", ""), ("hr", "HR"), ("pace", "Pace"), ("cadence", "Cad")]:
+        v = step.get(key)
+        if not isinstance(v, dict):
+            continue
+        units = v.get("units", "")
+        if v.get("start") is not None and v.get("end") is not None:
+            val = f"{v['start']}-{v['end']}"
+        elif v.get("value") is not None:
+            val = f"{v['value']}"
+        else:
+            continue
+        bits.append(f"{(label + ' ') if label else ''}{val}{units}")
+    return ", ".join(bits)
+
+
+def _format_workout_step(step: dict[str, Any], depth: int = 0) -> list[str]:
+    """Recursively render one workout_doc step (handles repeat blocks). Depth-capped."""
+    indent = "  " * (depth + 1)
+    if depth > 6:
+        return [f"{indent}- ...(nested too deep)"]
+    reps = step.get("reps")
+    substeps = step.get("steps")
+    if reps and isinstance(substeps, list):
+        lines = [f"{indent}{reps}x:"]
+        for sub in substeps:
+            if isinstance(sub, dict):
+                lines.extend(_format_workout_step(sub, depth + 1))
+        return lines
+    parts = []
+    if step.get("duration") is not None:
+        parts.append(_format_duration_label(int(step["duration"])))
+    if step.get("distance") is not None:
+        parts.append(f"{step['distance']}m")
+    tag = ""
+    if step.get("warmup"):
+        tag = " (warmup)"
+    elif step.get("cooldown"):
+        tag = " (cooldown)"
+    elif step.get("freeride"):
+        tag = " (free ride)"
+    intensity = _format_step_intensity(step)
+    if step.get("ramp") and intensity:
+        intensity = "ramp " + intensity
+    label = " ".join(parts) if parts else "step"
+    detail = f" @ {intensity}" if intensity else ""
+    text = step.get("text")
+    return [f"{indent}- {label}{detail}{tag}{(' — ' + text) if text else ''}"]
+
+
+def format_workout_summary(workout: dict[str, Any]) -> str:
+    """Format one library workout as a compact one-line list entry."""
+    line = " | ".join([str(workout.get("name", "Unnamed")), str(workout.get("type", "?"))])
+    extra = []
+    if workout.get("icu_training_load") is not None:
+        extra.append(f"load {workout['icu_training_load']}")
+    if workout.get("moving_time") is not None:
+        extra.append(f"{workout['moving_time']}s")
+    if workout.get("folder_id") is not None:
+        extra.append(f"folder {workout['folder_id']}")
+    if extra:
+        line += "  (" + ", ".join(extra) + ")"
+    return line + f"  [id: {workout.get('id', 'N/A')}]"
+
+
+def format_workout_details(workout: dict[str, Any]) -> str:
+    """Format a library workout in full, including its structured steps."""
+    lines = [f"Workout: {workout.get('name', 'Unnamed')}", f"ID: {workout.get('id', 'N/A')}"]
+    for key, label, unit in [
+        ("type", "Type", ""),
+        ("sub_type", "Sub-type", ""),
+        ("indoor", "Indoor", ""),
+        ("moving_time", "Duration", "s"),
+        ("distance", "Distance", "m"),
+        ("icu_training_load", "Training Load", ""),
+        ("icu_intensity", "Intensity", ""),
+        ("carbs_per_hour", "Carbs", "g/hr"),
+        ("folder_id", "Folder", ""),
+    ]:
+        if workout.get(key) is not None:
+            lines.append(f"{label}: {workout[key]}{(' ' + unit) if unit else ''}")
+    if workout.get("description"):
+        lines.append(f"Description: {workout['description']}")
+    tags = workout.get("tags")
+    if isinstance(tags, list) and tags:
+        lines.append("Tags: " + ", ".join(str(t) for t in tags))
+
+    doc = workout.get("workout_doc")
+    if isinstance(doc, dict) and isinstance(doc.get("steps"), list) and doc["steps"]:
+        lines += ["", "Steps:"]
+        for step in doc["steps"]:
+            if isinstance(step, dict):
+                lines.extend(_format_workout_step(step))
     return "\n".join(lines)
