@@ -215,6 +215,20 @@ def test_update_wellness_bulk_too_many(monkeypatch):
     assert calls == []
 
 
+def test_update_wellness_bulk_rejects_unknown_keys(monkeypatch):
+    # camelCase/API-style names must be rejected, not silently dropped: the value
+    # the caller asked to record would otherwise be lost behind a success message.
+    calls = _patch_request(monkeypatch, [{}])
+    out = asyncio.run(
+        wellness.update_wellness_bulk(
+            [{"date": "2026-07-18", "weight": 80, "restingHR": 50}]
+        )
+    )
+    assert "unrecognized field(s): restingHR" in out
+    assert "resting_hr" in out  # the error names the valid fields
+    assert calls == []  # whole batch rejected, nothing written
+
+
 def test_update_wellness_bulk_error(monkeypatch):
     _patch_request(monkeypatch, {"error": True, "message": "boom"})
     out = asyncio.run(wellness.update_wellness_bulk([{"date": "2026-07-18", "weight": 80}]))
